@@ -54,13 +54,25 @@ externe API of key nodig. Werkt in **Chrome/Edge**; niet in Safari/Firefox
 1. **Dicteren** bij een verslag: een microfoon-knop bij het notitieveld die
    live spraak → tekst omzet en aanvult terwijl je spreekt (knop pulseert rood
    tijdens het luisteren).
-2. **Oudergesprek opnemen**: neemt audio op via de **MediaRecorder API** én
-   bouwt tegelijk een live transcript op. Na het stoppen kan je het transcript
-   corrigeren en met één klik overnemen als basis voor een nieuw verslag.
+2. **Oudergesprek opnemen**: neemt audio op via de **MediaRecorder API**, met
+   tijdens het opnemen een optionele **snelle voorvertoning** (Web Speech). Na
+   het stoppen wordt het volledige audiofragment naar de server-route
+   **`POST /api/opname/transcript`** gestuurd, die **AssemblyAI** aanroept voor
+   een nauwkeurige transcriptie **mét sprekersherkenning** (speaker diarization,
+   taal `nl`). De client pollt **`GET /api/opname/transcript/[id]`** en toont de
+   verwerkingsstatus. Het resultaat verschijnt met sprekerslabels
+   (“Spreker A:”, “Spreker B:”) die je kan **hernoemen** (bv. “Ouder”,
+   “Leerkracht”). Dit **AssemblyAI-transcript** is de definitieve tekst voor het
+   verslag en voor “Laat AI uitwerken” — niet de live browser-voorvertoning.
 
-   🔒 **Privacy:** enkel het **transcript (tekst)** wordt bewaard (als
-   `Verslag.brontekst`, met leerling + datum). Het **audiofragment gaat nooit
-   naar de server/database** — je kan het wél zelf lokaal downloaden (`.webm`).
+   🔒 **Privacy:** het audiofragment wordt **tijdelijk** naar AssemblyAI gestuurd
+   voor de transcriptie en wordt **niet** in onze database bewaard. Enkel het
+   **teksttranscript** wordt opgeslagen (als `Verslag.brontekst`, met leerling +
+   datum). Je kan het audiofragment wél zelf lokaal downloaden (`.webm`).
+
+> ℹ️ De accurate transcriptie vereist `ASSEMBLYAI_API_KEY` (zie deployment).
+> Vercel serverless heeft een request-limiet (~4,5 MB) op de audio-upload;
+> voor zeer lange opnames kan dat een grens vormen.
 
 ## Claude API (AI-functies)
 
@@ -121,8 +133,9 @@ optioneel de Claude-variabelen) toe.
 | `DATABASE_URL`          | ✅ (auto) | Pooled connectiestring voor de app. **Automatisch gezet door de Neon-integratie.** |
 | `DATABASE_URL_UNPOOLED` | ✅ (auto) | Directe (niet-pooled) connectiestring, gebruikt door `prisma migrate deploy` tijdens de build. **Automatisch gezet door de Neon-integratie.** |
 | `APP_PASSWORD`          | ✅ ja*    | Het gedeelde wachtwoord voor het inlog-poortje. *Technisch optioneel — laat je het leeg, dan is de site publiek toegankelijk.* Zet het dus zeker bij een live-deploy. |
-| `ANTHROPIC_API_KEY`     | ⬜ optioneel | Claude API key voor de verslag-generatie. Leeg = lokale mock-generator. |
+| `ANTHROPIC_API_KEY`     | ⬜ optioneel | Claude API key voor verslag-generatie en “Laat AI uitwerken”. Leeg = mock / duidelijke melding. |
 | `ANTHROPIC_MODEL`       | ⬜ optioneel | Welk Claude-model gebruikt wordt (default `claude-sonnet-5`).           |
+| `ASSEMBLYAI_API_KEY`    | ⬜ optioneel | AssemblyAI key voor de nauwkeurige transcriptie (met sprekers) van opgenomen oudergesprekken. Leeg = duidelijke melding, geen audio verzonden. |
 
 Gebruik je een andere provider dan Neon, zorg dan zelf dat `DATABASE_URL`
 (pooled) en `DATABASE_URL_UNPOOLED` (direct) gezet zijn; heb je maar één URL,
@@ -175,6 +188,8 @@ src/
     avi.ts           # AVI-berekening (niveau + status) + grafiekschaal
     opvolging.ts     # urgentie-classificatie van opvolgacties
     seedData.ts      # gedeelde seed-inserts (script + /api/admin/seed)
+    aiVerslag.ts     # AI-uitwerking via @anthropic-ai/sdk (server-side)
+    assemblyai.ts    # AssemblyAI-transcriptie met sprekers (server-side)
     claude.ts        # 👈 Claude API-integratie + mock (hier je key)
     format.ts        # weergave-helpers
   components/        # NavBar, Badge, PrintButton, AfgerondToggle
