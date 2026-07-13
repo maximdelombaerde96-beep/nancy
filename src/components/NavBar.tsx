@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { logout } from "@/app/login/actions";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
@@ -11,8 +12,11 @@ const links = [
   { href: "/normtabel", label: "Normtabel" },
 ];
 
-export default function NavBar() {
+export default function NavBar({ authEnabled = false }: { authEnabled?: boolean }) {
   const pathname = usePathname();
+
+  // Geen navigatie op de inlogpagina.
+  if (pathname === "/login") return null;
 
   return (
     <header className="no-print border-b border-slate-200 bg-white">
@@ -42,9 +46,21 @@ export default function NavBar() {
             );
           })}
         </nav>
-        <span className="ml-auto rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-          MVP · fictieve testdata
-        </span>
+        <div className="ml-auto flex items-center gap-3">
+          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
+            MVP · fictieve testdata
+          </span>
+          {authEnabled && (
+            <form action={logout}>
+              <button
+                type="submit"
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Afmelden
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </header>
   );

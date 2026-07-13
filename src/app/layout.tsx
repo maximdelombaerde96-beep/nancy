@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import NavBar from "@/components/NavBar";
+import { gateEnabled } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Zorgdossier Tool",
@@ -15,7 +16,7 @@ export default function RootLayout({
   return (
     <html lang="nl">
       <body>
-        <NavBar />
+        <NavBar authEnabled={gateEnabled()} />
         <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
       </body>
     </html>

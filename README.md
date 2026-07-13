@@ -49,6 +49,21 @@ leeg is, gebruikt de app automatisch de mock; van zodra er een geldige key staat
 echte Claude Messages API aan. Faalt de API-oproep (bv. verkeerde key), dan valt de app netjes
 terug op de mock met een duidelijke melding.
 
+## Wachtwoordbeveiliging (poortje)
+
+De hele app kan achter één gedeeld wachtwoord gezet worden via de environment
+variable **`APP_PASSWORD`**:
+
+- **Leeg / niet ingesteld** → poortje **uit** (open toegang; handig lokaal).
+- **Waarde ingesteld** → poortje **aan**: bezoekers krijgen eerst een
+  inlogpagina (`/login`). Na het juiste wachtwoord wordt een `httpOnly`-cookie
+  gezet (met een SHA-256 afgeleide van het wachtwoord, niet het wachtwoord zelf).
+  Een **Afmelden**-knop wist de sessie.
+
+De afscherming gebeurt in `src/middleware.ts` (Edge middleware — werkt ook in
+Vercels serverless omgeving). Statische bestanden en de inlogpagina blijven
+bereikbaar. Zie het deployment-hoofdstuk voor het instellen op Vercel.
+
 ## Datamodel
 
 Zie [`prisma/schema.prisma`](prisma/schema.prisma): `Klas`, `Leerling`, `Zorgprofiel` (1-op-1),
