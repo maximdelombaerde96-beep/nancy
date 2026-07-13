@@ -29,6 +29,8 @@ export async function middleware(req: NextRequest) {
 // Beveilig alle routes behalve Next-internals en statische bestanden.
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // api/opname/blob-upload is uitgesloten: Vercel roept de upload-completed
+    // callback zonder onze auth-cookie aan; die route regelt auth zelf.
+    "/((?!api/opname/blob-upload|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

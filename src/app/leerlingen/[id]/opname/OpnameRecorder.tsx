@@ -64,6 +64,10 @@ export default function OpnameRecorder({
   const [seconden, setSeconden] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [micFout, setMicFout] = useState<string | null>(null);
+  const [verwerkStap, setVerwerkStap] = useState<"uploaden" | "transcriberen">(
+    "uploaden"
+  );
+  const [uploadPct, setUploadPct] = useState(0);
   const [verwerkStatus, setVerwerkStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +75,10 @@ export default function OpnameRecorder({
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const opslagRef = useRef<{ mode: string; url: string | null }>({
+    mode: "none",
+    url: null,
+  });
   const pollAbortRef = useRef(false);
 
   const [mounted, setMounted] = useState(false);
@@ -170,26 +178,117 @@ export default function OpnameRecorder({
     recorderRef.current?.stop(); // triggert onstop -> verwerkAudio
   }
 
-  // Upload het audiofragment en pollt AssemblyAI tot het transcript klaar is.
+  // Uploadt de audio RECHTSTREEKS naar de opslag (buiten onze serverless-route
+  // om, dus geen 4,5MB-limiet). Geeft de opslag-modus + publieke URL terug, of
+  // { mode: "none" } als er geen directe opslag is (dan volgt de fallback).
+  async function uploadRechtstreeks(
+    blob: Blob,
+    onProgress: (pct: number) => void
+  ): Promise<{ mode: string; url: string | null }> {
+    // Test-hook: laat tests de upload simuleren zonder echte opslag.
+    const override = (window as any).__OPNAME_UPLOAD_OVERRIDE__;
+    if (typeof override === "function") {
+      return override(blob, onProgress);
+    }
+
+    const tRes = await fetch("/api/opname/upload-url", { method: "POST" });
+    const t = await tRes.json().catch(() => ({}));
+    if (!tRes.ok || !t?.ok) {
+      throw new Error(t?.message || "Kon geen upload-doel krijgen.");
+    }
+
+    if (t.mode === "none") return { mode: "none", url: null };
+
+    if (t.mode === "put") {
+      await putMetVoortgang(t.uploadUrl, blob, onProgress);
+      return { mode: "put", url: t.downloadUrl };
+    }
+
+    if (t.mode === "blob") {
+      const { upload } = await import("@vercel/blob/client");
+      const res = await upload(t.pathname, blob, {
+        access: "public",
+        contentType: blob.type || "audio/webm",
+        handleUploadUrl: "/api/opname/blob-upload",
+        onUploadProgress: (e: { percentage: number }) =>
+          onProgress(Math.round(e.percentage)),
+      });
+      return { mode: "blob", url: res.url };
+    }
+
+    return { mode: "none", url: null };
+  }
+
+  // Directe HTTP PUT met echte upload-voortgang (via XHR).
+  function putMetVoortgang(
+    url: string,
+    blob: Blob,
+    onProgress: (pct: number) => void
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", url);
+      xhr.setRequestHeader("content-type", blob.type || "audio/webm");
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      xhr.onload = () =>
+        xhr.status >= 200 && xhr.status < 300
+          ? resolve()
+          : reject(new Error(`Upload mislukt (${xhr.status}).`));
+      xhr.onerror = () => reject(new Error("Netwerkfout tijdens de upload."));
+      xhr.send(blob);
+    });
+  }
+
+  // Upload het audiofragment (rechtstreeks) en pollt AssemblyAI tot het
+  // transcript klaar is.
   async function verwerkAudio(blob: Blob) {
     pollAbortRef.current = false;
     setFase("verwerken");
     setError(null);
+    setVerwerkStap("uploaden");
+    setUploadPct(0);
     setVerwerkStatus("Audio uploaden…");
 
     try {
-      const startRes = await fetch("/api/opname/transcript", {
-        method: "POST",
-        headers: { "content-type": blob.type || "audio/webm" },
-        body: blob,
+      const opslag = await uploadRechtstreeks(blob, (pct) => {
+        setUploadPct(pct);
       });
-      const startData = await startRes.json().catch(() => ({}));
-      if (!startRes.ok || !startData?.ok) {
-        throw new Error(startData?.message || `Fout ${startRes.status}`);
+      opslagRef.current = opslag;
+
+      let id: string;
+      if (opslag.url) {
+        // Directe upload gelukt: start de transcriptie op die URL (kleine JSON).
+        setUploadPct(100);
+        const startRes = await fetch("/api/opname/transcript", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ audioUrl: opslag.url }),
+        });
+        const startData = await startRes.json().catch(() => ({}));
+        if (!startRes.ok || !startData?.ok) {
+          throw new Error(startData?.message || `Fout ${startRes.status}`);
+        }
+        id = startData.id;
+      } else {
+        // Fallback (geen directe opslag): ruwe audio via onze route.
+        const startRes = await fetch("/api/opname/transcript", {
+          method: "POST",
+          headers: { "content-type": blob.type || "audio/webm" },
+          body: blob,
+        });
+        const startData = await startRes.json().catch(() => ({}));
+        if (!startRes.ok || !startData?.ok) {
+          throw new Error(startData?.message || `Fout ${startRes.status}`);
+        }
+        id = startData.id;
       }
-      const id: string = startData.id;
 
       const begin = Date.now();
+      setVerwerkStap("transcriberen");
       setVerwerkStatus("Transcriberen bij AssemblyAI…");
 
       for (let i = 0; i < MAX_POLLS; i++) {
@@ -204,6 +303,7 @@ export default function OpnameRecorder({
 
         const secs = Math.round((Date.now() - begin) / 1000);
         if (d.done) {
+          verwijderTijdelijkeAudio(); // privacy: audio niet bewaren
           toonResultaat(d.utterances ?? [], d.text ?? "");
           return;
         }
@@ -219,6 +319,18 @@ export default function OpnameRecorder({
       setError((e as Error).message);
       setFase("fout");
     }
+  }
+
+  // Verwijdert (best-effort) het tijdelijk geüploade audiofragment uit de opslag.
+  function verwijderTijdelijkeAudio() {
+    const { mode, url } = opslagRef.current;
+    if (!url || mode === "none") return;
+    void fetch("/api/opname/cleanup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url, mode }),
+    }).catch(() => {});
+    opslagRef.current = { mode: "none", url: null };
   }
 
   function toonResultaat(u: Utterance[], volledigeTekst: string) {
@@ -347,27 +459,48 @@ export default function OpnameRecorder({
         )}
 
         <p className="mt-3 text-xs text-slate-400">
-          🔒 Privacy: het audiofragment wordt tijdelijk naar AssemblyAI gestuurd
-          voor de transcriptie en wordt <strong>niet</strong> in onze database
-          bewaard. Enkel het teksttranscript wordt opgeslagen. Je kan het
-          audiofragment hieronder wél zelf lokaal downloaden.
+          🔒 Privacy: het audiofragment wordt <strong>rechtstreeks</strong> naar
+          tijdelijke opslag geüpload en enkel voor de transcriptie naar
+          AssemblyAI gestuurd; het wordt daarna verwijderd en <strong>niet</strong>{" "}
+          in onze database bewaard. Enkel het teksttranscript wordt opgeslagen.
+          Je kan het audiofragment hieronder wél zelf lokaal downloaden.
         </p>
       </div>
 
       {/* Verwerkingsstatus */}
       {verwerkt && (
         <div className="rounded-xl border border-brand-200 bg-brand-50 p-5">
-          <div className="flex items-center gap-3">
-            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-            <span className="text-sm font-medium text-brand-800">
-              {verwerkStatus || "Bezig…"}
-            </span>
-          </div>
-          <p className="mt-2 text-xs text-brand-700">
-            Transcriberen kan bij langere opnames enkele tientallen seconden tot
-            enkele minuten duren. Je hoeft niet te wachten met dit tabblad open —
-            de status wordt automatisch bijgewerkt.
-          </p>
+          {verwerkStap === "uploaden" ? (
+            <>
+              <div className="mb-2 flex items-center justify-between text-sm font-medium text-brand-800">
+                <span>📤 Audiofragment uploaden…</span>
+                <span data-testid="upload-pct">{uploadPct}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-brand-100">
+                <div
+                  className="h-full rounded-full bg-brand-600 transition-[width] duration-200"
+                  style={{ width: `${uploadPct}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs text-brand-700">
+                De volledige opname wordt geüpload — ook lange gesprekken en
+                meetings van 30–60+ minuten.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+                <span className="text-sm font-medium text-brand-800">
+                  {verwerkStatus || "Bezig…"}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-brand-700">
+                Transcriberen kan bij langere opnames enkele tientallen seconden
+                tot enkele minuten duren. De status wordt automatisch bijgewerkt.
+              </p>
+            </>
+          )}
         </div>
       )}
 

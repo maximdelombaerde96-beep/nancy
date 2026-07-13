@@ -56,23 +56,37 @@ externe API of key nodig. Werkt in **Chrome/Edge**; niet in Safari/Firefox
    tijdens het luisteren).
 2. **Oudergesprek opnemen**: neemt audio op via de **MediaRecorder API**, met
    tijdens het opnemen een optionele **snelle voorvertoning** (Web Speech). Na
-   het stoppen wordt het volledige audiofragment naar de server-route
-   **`POST /api/opname/transcript`** gestuurd, die **AssemblyAI** aanroept voor
-   een nauwkeurige transcriptie **mét sprekersherkenning** (speaker diarization,
-   taal `nl`). De client pollt **`GET /api/opname/transcript/[id]`** en toont de
-   verwerkingsstatus. Het resultaat verschijnt met sprekerslabels
+   het stoppen wordt het audiofragment **rechtstreeks naar tijdelijke opslag**
+   geüpload (met een **procentuele voortgangsindicator**), en start
+   **AssemblyAI** een nauwkeurige transcriptie **mét sprekersherkenning**
+   (speaker diarization, taal `nl`) op die URL. De client pollt de status en
+   toont de voortgang. Het resultaat verschijnt met sprekerslabels
    (“Spreker A:”, “Spreker B:”) die je kan **hernoemen** (bv. “Ouder”,
    “Leerkracht”). Dit **AssemblyAI-transcript** is de definitieve tekst voor het
    verslag en voor “Laat AI uitwerken” — niet de live browser-voorvertoning.
 
-   🔒 **Privacy:** het audiofragment wordt **tijdelijk** naar AssemblyAI gestuurd
-   voor de transcriptie en wordt **niet** in onze database bewaard. Enkel het
-   **teksttranscript** wordt opgeslagen (als `Verslag.brontekst`, met leerling +
-   datum). Je kan het audiofragment wél zelf lokaal downloaden (`.webm`).
+   **Waarom directe upload?** De audio loopt **niet** door onze eigen serverless-
+   route, zodat de Vercel-request-limiet (~4,5 MB) wegvalt en ook lange
+   gesprekken/meetings (30–60+ min) volledig geüpload en getranscribeerd worden.
+   De browser vraagt server-side een tijdelijk upload-doel op
+   (**`POST /api/opname/upload-url`**) en uploadt daar rechtstreeks naartoe; onze
+   `ASSEMBLYAI_API_KEY` blijft server-side en start enkel de transcriptie op de
+   resulterende URL (**`POST /api/opname/transcript`** met `{ audioUrl }`), waarna
+   de client **`GET /api/opname/transcript/[id]`** pollt.
 
-> ℹ️ De accurate transcriptie vereist `ASSEMBLYAI_API_KEY` (zie deployment).
-> Vercel serverless heeft een request-limiet (~4,5 MB) op de audio-upload;
-> voor zeer lange opnames kan dat een grens vormen.
+   Opslag-modi (server-side gekozen): **Vercel Blob** (`BLOB_READ_WRITE_TOKEN`,
+   client-upload met server-token), een **generieke presigned PUT** (S3/R2 via
+   `OPNAME_UPLOAD_ENDPOINT`), of — zonder beide — een **fallback** via de eigen
+   route (tot ~4,5 MB). AssemblyAI biedt zelf geen client-upload-URL aan (hun
+   `/v2/upload` vereist de key en levert een privé-URL), vandaar de tijdelijke
+   opslag.
+
+   🔒 **Privacy:** de audio staat **enkel tijdelijk** in de opslag tijdens de
+   verwerking en wordt na de transcriptie **verwijderd**
+   (**`POST /api/opname/cleanup`**); ze wordt **niet** in onze database bewaard.
+   Enkel het **teksttranscript** wordt opgeslagen (als `Verslag.brontekst`, met
+   leerling + datum). Je kan het audiofragment wél zelf lokaal downloaden
+   (`.webm`).
 
 ## Claude API (AI-functies)
 
@@ -136,6 +150,8 @@ optioneel de Claude-variabelen) toe.
 | `ANTHROPIC_API_KEY`     | ⬜ optioneel | Claude API key voor verslag-generatie en “Laat AI uitwerken”. Leeg = mock / duidelijke melding. |
 | `ANTHROPIC_MODEL`       | ⬜ optioneel | Welk Claude-model gebruikt wordt (default `claude-sonnet-5`).           |
 | `ASSEMBLYAI_API_KEY`    | ⬜ optioneel | AssemblyAI key voor de nauwkeurige transcriptie (met sprekers) van opgenomen oudergesprekken. Leeg = duidelijke melding, geen audio verzonden. |
+| `BLOB_READ_WRITE_TOKEN` | ⬜ optioneel | Voor **directe audio-upload** (lange opnames): maak een **Vercel Blob**-store aan (Storage → Blob) — dit wordt dan automatisch gezet. Aanbevolen; zonder dit valt de upload terug op de eigen route (~4,5 MB). |
+| `OPNAME_UPLOAD_ENDPOINT`| ⬜ optioneel | Alternatief voor Blob: basis-URL van een generieke presigned-PUT-opslag (S3/R2/…). |
 
 Gebruik je een andere provider dan Neon, zorg dan zelf dat `DATABASE_URL`
 (pooled) en `DATABASE_URL_UNPOOLED` (direct) gezet zijn; heb je maar één URL,
@@ -202,4 +218,6 @@ src/
     normtabel/       # normtabel-configuratie
     admin/seed/      # beveiligde pagina om eenmalig te seeden
     api/admin/seed/  # beveiligde POST-route (auth + guard op bestaande data)
+    api/ai/verslag/  # AI-uitwerking (Anthropic SDK)
+    api/opname/      # transcriptie: upload-url, transcript, blob-upload, cleanup
 ```
