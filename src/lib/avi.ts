@@ -72,3 +72,30 @@ export const statusColor: Record<AviStatus, string> = {
   op: "bg-green-100 text-green-800 border-green-200",
   boven: "bg-blue-100 text-blue-800 border-blue-200",
 };
+
+// Volle statuskleuren (voor markers in de grafiek), afgestemd op de badges.
+export const statusMarkColor: Record<AviStatus, string> = {
+  onder: "#dc2626", // red-600
+  op: "#16a34a", // green-600
+  boven: "#2563eb", // blue-600
+};
+
+// Ordinale schaal van AVI-niveaus, van laag naar hoog. Gebruikt om het
+// AVI-niveau numeriek uit te zetten in de evolutiegrafiek.
+export const aviNiveauVolgorde = [
+  "AVI-Start",
+  "AVI-M3",
+  "AVI-E3",
+  "AVI-M4",
+  "AVI-E4",
+  "AVI-M5",
+  "AVI-E5",
+  "AVI-M6",
+  "AVI-E6",
+  "AVI-Plus",
+];
+
+// Geeft de rangorde-index van een AVI-niveau (of -1 als onbekend).
+export function aviNiveauIndex(niveau: string): number {
+  return aviNiveauVolgorde.indexOf(niveau.trim());
+}

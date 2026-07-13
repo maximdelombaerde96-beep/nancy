@@ -13,6 +13,7 @@ import ActieForm from "./ActieForm";
 import ZorgstatusSelect from "./ZorgstatusSelect";
 import LeerlingActies from "./LeerlingActies";
 import ZorgprofielEditor from "./ZorgprofielEditor";
+import AviChart from "./AviChart";
 import { verwijderActie } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -129,32 +130,52 @@ export default async function DossierPage({
             </Link>
           </div>
           {leerling.aviResultaten.length > 0 ? (
-            <div className="space-y-2">
-              {leerling.aviResultaten.map((a) => (
-                <div
-                  key={a.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="w-12 font-semibold text-slate-700">
-                      {a.toetsmoment}
-                    </span>
-                    <span className="text-slate-500">{formatDatum(a.datum)}</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-slate-600">
-                      {a.leestijdSeconden}s · {a.fouten} fout
-                      {a.fouten === 1 ? "" : "en"}
-                    </span>
-                    <span className="font-medium text-slate-700">
-                      {a.aviNiveau}
-                    </span>
-                    <Badge className={statusColor[a.status as AviStatus]}>
-                      {statusLabel[a.status as AviStatus]}
-                    </Badge>
-                  </div>
+            <div className="space-y-4">
+              {/* Evolutiegrafiek */}
+              <div className="rounded-lg border border-slate-100 p-3">
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                  AVI-niveau over tijd
                 </div>
-              ))}
+                <AviChart
+                  punten={leerling.aviResultaten.map((a) => ({
+                    toetsmoment: a.toetsmoment,
+                    datum: a.datum.toISOString(),
+                    aviNiveau: a.aviNiveau,
+                    status: a.status,
+                    leestijdSeconden: a.leestijdSeconden,
+                    fouten: a.fouten,
+                  }))}
+                />
+              </div>
+
+              {/* Detaillijst */}
+              <div className="space-y-2">
+                {leerling.aviResultaten.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-12 font-semibold text-slate-700">
+                        {a.toetsmoment}
+                      </span>
+                      <span className="text-slate-500">{formatDatum(a.datum)}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-slate-600">
+                        {a.leestijdSeconden}s · {a.fouten} fout
+                        {a.fouten === 1 ? "" : "en"}
+                      </span>
+                      <span className="font-medium text-slate-700">
+                        {a.aviNiveau}
+                      </span>
+                      <Badge className={statusColor[a.status as AviStatus]}>
+                        {statusLabel[a.status as AviStatus]}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <p className="text-sm text-slate-400">
