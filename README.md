@@ -26,8 +26,9 @@ Handige scripts:
 
 ## Functionaliteiten
 
-- **Leerlingenlijst** (`/leerlingen`) — met zoeken (naam) en filteren op klas, leerjaar en zorgstatus.
-- **Dossier** (`/leerlingen/[id]`) — alles op één scherm: zorgprofiel, AVI-tijdlijn, acties/notities en verslagen. Zorgstatus, acties en notities zijn direct bewerkbaar.
+- **Dashboard** (`/dashboard`) — filter leerlingen op klas, leerjaar, zorgstatus, **AVI-status** (onder/op/boven niveau), **logopedie**, **leersteun** en **type diagnose**; overzichtstabel met directe link naar het dossier en een korte samenvatting.
+- **Leerlingenlijst** (`/leerlingen`) — met zoeken (naam) en filteren op klas, leerjaar en zorgstatus. Volledige **CRUD**: leerling aanmaken, bewerken, **archiveren/herstellen** en definitief verwijderen — allemaal via de UI.
+- **Dossier** (`/leerlingen/[id]`) — alles op één scherm. Het **zorgprofiel is volledig bewerkbaar** (logopedie, leersteun, diagnoses toevoegen/bewerken/verwijderen, zorgmaatregelen). AVI-tijdlijn, acties/notities en verslagen; zorgstatus direct aanpasbaar.
 - **AVI-module** (`/avi`) — je vult enkel **leestijd + fouten** in; de tool berekent automatisch het **AVI-niveau** en de **status** (onder/op/boven niveau) op basis van de normtabel, en toont een **klasoverzicht**.
 - **Normtabel** (`/normtabel`) — configureerbaar scherm voor de AVI-grenzen per leerjaar/periode.
 - **Verslag-module** (`/leerlingen/[id]/verslag/nieuw`) — typ losse notities → laat er een professioneel verslag met actiepunten + opvolgdatum van maken → beoordeel/pas aan → sla op bij de leerling.
