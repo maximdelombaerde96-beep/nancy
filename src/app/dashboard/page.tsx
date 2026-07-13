@@ -162,12 +162,21 @@ export default async function DashboardPage({ searchParams }: Props) {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/leerlingen/${l.id}`}
-                      className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-brand-700 hover:bg-slate-50"
-                    >
-                      Dossier →
-                    </Link>
+                    <div className="flex justify-end gap-1.5">
+                      <Link
+                        href={`/leerlingen/${l.id}/opname`}
+                        title="Oudergesprek opnemen"
+                        className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                      >
+                        🎙️
+                      </Link>
+                      <Link
+                        href={`/leerlingen/${l.id}`}
+                        className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-brand-700 hover:bg-slate-50"
+                      >
+                        Dossier →
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               );

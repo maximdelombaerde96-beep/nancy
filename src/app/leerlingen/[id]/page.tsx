@@ -266,14 +266,22 @@ export default async function DossierPage({
 
       {/* Verslagen */}
       <section className="rounded-xl border border-slate-200 bg-white p-5">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-800">Verslagen</h2>
-          <Link
-            href={`/leerlingen/${leerling.id}/verslag/nieuw`}
-            className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
-          >
-            + Nieuw verslag
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/leerlingen/${leerling.id}/opname`}
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100"
+            >
+              🎙️ Oudergesprek opnemen
+            </Link>
+            <Link
+              href={`/leerlingen/${leerling.id}/verslag/nieuw`}
+              className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              + Nieuw verslag
+            </Link>
+          </div>
         </div>
         {leerling.verslagen.length > 0 ? (
           <div className="space-y-2">

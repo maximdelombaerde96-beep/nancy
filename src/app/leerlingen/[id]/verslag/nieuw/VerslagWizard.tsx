@@ -1,11 +1,17 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import {
   genereerConcept,
   bewaarVerslag,
   type GenereerResult,
 } from "../actions";
+import DicteerKnop from "@/components/DicteerKnop";
+
+// sessionStorage-sleutel waarmee een opgenomen gesprek (transcript) wordt
+// doorgegeven aan dit formulier.
+export const OPNAME_STORAGE_KEY = (leerlingId: string) =>
+  `opname-transcript:${leerlingId}`;
 
 interface Props {
   leerlingId: string;
@@ -22,6 +28,26 @@ export default function VerslagWizard({
     GenereerResult | null,
     FormData
   >(genereerConcept, null);
+
+  const [brontekst, setBrontekst] = useState("");
+
+  // Neem een eventueel opgenomen gesprek-transcript over als startpunt.
+  useEffect(() => {
+    try {
+      const key = OPNAME_STORAGE_KEY(leerlingId);
+      const opgenomen = sessionStorage.getItem(key);
+      if (opgenomen) {
+        setBrontekst(opgenomen);
+        sessionStorage.removeItem(key);
+      }
+    } catch {
+      /* sessionStorage niet beschikbaar — negeren */
+    }
+  }, [leerlingId]);
+
+  // Voegt gedicteerde tekst netjes toe aan de bestaande notities.
+  const voegDictaatToe = (t: string) =>
+    setBrontekst((huidig) => (huidig ? `${huidig} ${t}` : t));
 
   const vandaag = new Date().toISOString().slice(0, 10);
   const concept = state?.ok ? state.data : undefined;
@@ -77,14 +103,19 @@ export default function VerslagWizard({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-500">
-            Notities over het gesprek met/over {leerlingNaam}
-          </label>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs font-medium text-slate-500">
+              Notities over het gesprek met/over {leerlingNaam}
+            </label>
+            <DicteerKnop onTekst={voegDictaatToe} compact />
+          </div>
           <textarea
             name="brontekst"
             required
             rows={6}
-            placeholder="Typ hier je losse notities. Bijvoorbeeld: ouders bezorgd over lezen, thuis weinig motivatie, afspraak dagelijks 10 min samen lezen, voorleessoftware helpt..."
+            value={brontekst}
+            onChange={(e) => setBrontekst(e.target.value)}
+            placeholder="Typ hier je losse notities, of gebruik de dicteerknop. Bijvoorbeeld: ouders bezorgd over lezen, thuis weinig motivatie, afspraak dagelijks 10 min samen lezen, voorleessoftware helpt..."
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </div>

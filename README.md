@@ -41,7 +41,26 @@ Handige scripts:
 - **Dossier** (`/leerlingen/[id]`) — alles op één scherm. Het **zorgprofiel is volledig bewerkbaar** (logopedie, leersteun, diagnoses toevoegen/bewerken/verwijderen, zorgmaatregelen). **AVI-evolutiegrafiek** + tijdlijn, acties/notities (met opvolgstatus) en verslagen; zorgstatus direct aanpasbaar. **Print / PDF-export** van het volledige dossier (`/leerlingen/[id]/print`) en van een verslag via de browser ("Opslaan als PDF").
 - **AVI-module** (`/avi`) — je vult enkel **leestijd + fouten** in; de tool berekent automatisch het **AVI-niveau** en de **status** (onder/op/boven niveau) op basis van de normtabel, en toont een **klasoverzicht**.
 - **Normtabel** (`/normtabel`) — configureerbaar scherm voor de AVI-grenzen per leerjaar/periode.
-- **Verslag-module** (`/leerlingen/[id]/verslag/nieuw`) — typ losse notities → laat er een professioneel verslag met actiepunten + opvolgdatum van maken → beoordeel/pas aan → sla op bij de leerling.
+- **Verslag-module** (`/leerlingen/[id]/verslag/nieuw`) — typ losse notities (of **dicteer** ze met de microfoon-knop) → laat er een professioneel verslag met actiepunten + opvolgdatum van maken → beoordeel/pas aan → sla op bij de leerling.
+- **Oudergesprek opnemen** (`/leerlingen/[id]/opname`, ook bereikbaar vanuit het dashboard) — neem een gesprek op en bouw tegelijk een **live transcript** op. Na het stoppen corrigeer je het transcript en maak je er een verslag van. Zie *Spraakfunctionaliteit* hieronder.
+
+## Spraakfunctionaliteit (browser-native, gratis)
+
+Beide functies gebruiken de **Web Speech API** (`SpeechRecognition`) — geen
+externe API of key nodig. Werkt in **Chrome/Edge**; niet in Safari/Firefox
+(daar tonen de knoppen netjes de melding "gebruik Chrome"). Taal: probeert
+`nl-BE`, valt terug op `nl-NL`.
+
+1. **Dicteren** bij een verslag: een microfoon-knop bij het notitieveld die
+   live spraak → tekst omzet en aanvult terwijl je spreekt (knop pulseert rood
+   tijdens het luisteren).
+2. **Oudergesprek opnemen**: neemt audio op via de **MediaRecorder API** én
+   bouwt tegelijk een live transcript op. Na het stoppen kan je het transcript
+   corrigeren en met één klik overnemen als basis voor een nieuw verslag.
+
+   🔒 **Privacy:** enkel het **transcript (tekst)** wordt bewaard (als
+   `Verslag.brontekst`, met leerling + datum). Het **audiofragment gaat nooit
+   naar de server/database** — je kan het wél zelf lokaal downloaden (`.webm`).
 
 ## Claude API key invullen (verslag-generatie)
 
