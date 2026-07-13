@@ -11,6 +11,7 @@ import {
 import { statusColor, statusLabel, type AviStatus } from "@/lib/avi";
 import ActieForm from "./ActieForm";
 import ZorgstatusSelect from "./ZorgstatusSelect";
+import LeerlingActies from "./LeerlingActies";
 import { verwijderActie } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,13 @@ export default async function DossierPage({
         ← Terug naar leerlingenlijst
       </Link>
 
+      {leerling.gearchiveerd && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          📦 Deze leerling is gearchiveerd. Herstel de leerling om terug in de
+          actieve lijst te verschijnen.
+        </div>
+      )}
+
       {/* Header */}
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -63,11 +71,18 @@ export default async function DossierPage({
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge className={zorgStatusColor(leerling.status)}>
-              {zorgStatusLabel(leerling.status)}
-            </Badge>
-            <ZorgstatusSelect leerlingId={leerling.id} status={leerling.status} />
+          <div className="flex flex-col items-end gap-3">
+            <div className="flex items-center gap-2">
+              <Badge className={zorgStatusColor(leerling.status)}>
+                {zorgStatusLabel(leerling.status)}
+              </Badge>
+              <ZorgstatusSelect leerlingId={leerling.id} status={leerling.status} />
+            </div>
+            <LeerlingActies
+              id={leerling.id}
+              gearchiveerd={leerling.gearchiveerd}
+              naam={`${leerling.voornaam} ${leerling.achternaam}`}
+            />
           </div>
         </div>
       </div>

@@ -33,6 +33,8 @@ model Leerling {
   schooljaar    String
   // Zorgstatus van de leerling: "geen", "verhoogde_zorg", "uitbreiding_zorg", "individueel"
   status        String   @default("geen")
+  // Gearchiveerde leerlingen blijven bewaard maar verschijnen niet in de standaardlijsten.
+  gearchiveerd  Boolean  @default(false)
 
   zorgprofiel   Zorgprofiel?
   aviResultaten AviResultaat[]

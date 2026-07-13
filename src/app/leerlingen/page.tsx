@@ -18,13 +18,16 @@ interface Props {
     klas?: string;
     leerjaar?: string;
     status?: string;
+    archief?: string;
   }>;
 }
 
 export default async function LeerlingenPage({ searchParams }: Props) {
   const sp = await searchParams;
+  const toonArchief = sp.archief === "1";
 
   const where: Prisma.LeerlingWhereInput = {};
+  where.gearchiveerd = toonArchief ? true : false;
   if (sp.klas) where.klasId = sp.klas;
   if (sp.leerjaar) where.leerjaar = Number(sp.leerjaar);
   if (sp.status) where.status = sp.status;
@@ -35,7 +38,7 @@ export default async function LeerlingenPage({ searchParams }: Props) {
     ];
   }
 
-  const [leerlingen, klassen] = await Promise.all([
+  const [leerlingen, klassen, aantalArchief] = await Promise.all([
     prisma.leerling.findMany({
       where,
       include: {
@@ -45,20 +48,66 @@ export default async function LeerlingenPage({ searchParams }: Props) {
       orderBy: [{ achternaam: "asc" }, { voornaam: "asc" }],
     }),
     prisma.klas.findMany({ orderBy: { naam: "asc" } }),
+    prisma.leerling.count({ where: { gearchiveerd: true } }),
   ]);
 
   const leerjaren = [...new Set(klassen.map((k) => k.leerjaar))].sort();
 
+  // Behoud de actieve filters bij het wisselen tussen actief/archief.
+  const filterParams = new URLSearchParams();
+  if (sp.q) filterParams.set("q", sp.q);
+  if (sp.klas) filterParams.set("klas", sp.klas);
+  if (sp.leerjaar) filterParams.set("leerjaar", sp.leerjaar);
+  if (sp.status) filterParams.set("status", sp.status);
+  const archiefHref = (aan: boolean) => {
+    const p = new URLSearchParams(filterParams);
+    if (aan) p.set("archief", "1");
+    const qs = p.toString();
+    return `/leerlingen${qs ? `?${qs}` : ""}`;
+  };
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Leerlingen</h1>
+          <h1 className="text-2xl font-bold text-slate-800">
+            {toonArchief ? "Gearchiveerde leerlingen" : "Leerlingen"}
+          </h1>
           <p className="text-sm text-slate-500">
             {leerlingen.length} leerling{leerlingen.length === 1 ? "" : "en"}{" "}
             gevonden
           </p>
         </div>
+        <Link
+          href="/leerlingen/nieuw"
+          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          + Nieuwe leerling
+        </Link>
+      </div>
+
+      {/* Actief / archief-schakelaar */}
+      <div className="flex gap-1 text-sm">
+        <Link
+          href={archiefHref(false)}
+          className={`rounded-md px-3 py-1.5 font-medium ${
+            !toonArchief
+              ? "bg-brand-50 text-brand-700"
+              : "text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          Actief
+        </Link>
+        <Link
+          href={archiefHref(true)}
+          className={`rounded-md px-3 py-1.5 font-medium ${
+            toonArchief
+              ? "bg-brand-50 text-brand-700"
+              : "text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          Archief{aantalArchief > 0 ? ` (${aantalArchief})` : ""}
+        </Link>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -120,7 +169,9 @@ export default async function LeerlingenPage({ searchParams }: Props) {
             {leerlingen.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
-                  Geen leerlingen gevonden met deze filters.
+                  {toonArchief
+                    ? "Geen gearchiveerde leerlingen."
+                    : "Geen leerlingen gevonden met deze filters."}
                 </td>
               </tr>
             )}
