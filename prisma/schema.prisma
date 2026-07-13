@@ -1,0 +1,136 @@
+// Zorgdossier Tool — Prisma schema
+// Lokale SQLite-database, geen externe backend nodig.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Een klas binnen de school (bv. "3A").
+model Klas {
+  id         String     @id @default(cuid())
+  naam       String
+  leerjaar   Int
+  schooljaar String
+  leerlingen Leerling[]
+
+  @@unique([naam, schooljaar])
+}
+
+/// Een leerling. Elke leerling heeft (optioneel) één zorgprofiel.
+model Leerling {
+  id            String   @id @default(cuid())
+  voornaam      String
+  achternaam    String
+  geboortedatum DateTime
+  klasId        String?
+  klas          Klas?    @relation(fields: [klasId], references: [id])
+  leerjaar      Int
+  schooljaar    String
+  // Zorgstatus van de leerling: "geen", "verhoogde_zorg", "uitbreiding_zorg", "individueel"
+  status        String   @default("geen")
+
+  zorgprofiel   Zorgprofiel?
+  aviResultaten AviResultaat[]
+  acties        Actie[]
+  verslagen     Verslag[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// 1-op-1 zorgprofiel van een leerling.
+model Zorgprofiel {
+  id         String   @id @default(cuid())
+  leerlingId String   @unique
+  leerling   Leerling @relation(fields: [leerlingId], references: [id], onDelete: Cascade)
+
+  // LOGO / logopedie
+  logo            Boolean @default(false)
+  logoOmschrijving String @default("")
+
+  // Leersteun
+  leersteun     Boolean @default(false)
+  leersteunUren Float   @default(0)
+  leersteunType String  @default("")
+
+  // Diagnoses (aparte relatie, "lijst")
+  diagnoses Diagnose[]
+
+  // Zorgmaatregelen als vrije tekst
+  zorgmaatregelen String @default("")
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Eén diagnose binnen een zorgprofiel.
+model Diagnose {
+  id            String      @id @default(cuid())
+  zorgprofielId String
+  zorgprofiel   Zorgprofiel @relation(fields: [zorgprofielId], references: [id], onDelete: Cascade)
+  type          String
+  datum         DateTime
+  bron          String
+}
+
+/// Eén AVI-toetsresultaat. Niveau + status worden berekend uit de normtabel.
+model AviResultaat {
+  id              String   @id @default(cuid())
+  leerlingId      String
+  leerling        Leerling @relation(fields: [leerlingId], references: [id], onDelete: Cascade)
+  toetsmoment     String // bv. "M3", "E3", "M4" (Midden/Eind + leerjaar)
+  datum           DateTime
+  leestijdSeconden Int
+  fouten          Int
+  aviNiveau       String // berekend, bv. "AVI-M3"
+  // Status: "onder", "op", "boven" niveau
+  status          String
+
+  createdAt DateTime @default(now())
+}
+
+/// Normtabel voor AVI, configureerbaar via een scherm.
+/// Per leerjaar + periode + te toetsen AVI-niveau: tijd- en foutengrens.
+model AviNormtabel {
+  id          String @id @default(cuid())
+  leerjaar    Int
+  periode     String // bv. "M" (midden) of "E" (eind)
+  aviNiveau   String // het AVI-niveau dat op dat moment verwacht wordt
+  tijdsgrens  Int    // maximale leestijd in seconden voor "op niveau"
+  foutengrens Int    // maximaal aantal fouten voor "op niveau"
+
+  @@unique([leerjaar, periode])
+}
+
+/// Een actie of notitie in het opvolgdossier van een leerling.
+model Actie {
+  id          String    @id @default(cuid())
+  leerlingId  String
+  leerling    Leerling  @relation(fields: [leerlingId], references: [id], onDelete: Cascade)
+  datum       DateTime  @default(now())
+  type        String // "actie" of "notitie"
+  tekst       String
+  opvolgdatum DateTime?
+  auteur      String    @default("")
+
+  createdAt DateTime @default(now())
+}
+
+/// Een verslag van een oudergesprek/overleg.
+model Verslag {
+  id                String    @id @default(cuid())
+  leerlingId        String
+  leerling          Leerling  @relation(fields: [leerlingId], references: [id], onDelete: Cascade)
+  datum             DateTime  @default(now())
+  aanwezigen        String    @default("")
+  brontekst         String // ingevoerde losse notities
+  gegenereerdVerslag String   @default("") // AI-output
+  actiepunten       String    @default("") // AI-output (als tekst/lijst)
+  opvolgdatum       DateTime?
+
+  createdAt DateTime @default(now())
+}
