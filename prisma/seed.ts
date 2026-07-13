@@ -360,6 +360,48 @@ async function main() {
     console.log("✅ Voorbeeldverslag aangemaakt voor Adam De Smet");
   }
 
+  // Enkele opvolgacties met datums relatief aan "vandaag", zodat het
+  // opvolgoverzicht meteen voorbeelden toont van verlopen / binnenkort / later.
+  const dagen = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return d;
+  };
+  const lucas = await prisma.leerling.findFirst({ where: { voornaam: "Lucas" } });
+  const victor = await prisma.leerling.findFirst({ where: { voornaam: "Victor" } });
+  if (lucas) {
+    await prisma.actie.create({
+      data: {
+        leerlingId: lucas.id,
+        type: "actie",
+        tekst: "Oudergesprek plannen rond leesevolutie.",
+        opvolgdatum: dagen(-5), // verlopen
+        auteur: "Zorgcoördinator",
+      },
+    });
+    await prisma.actie.create({
+      data: {
+        leerlingId: lucas.id,
+        type: "actie",
+        tekst: "Leescontract evalueren met de leersteuncoach.",
+        opvolgdatum: dagen(7), // binnenkort
+        auteur: "Zorgcoördinator",
+      },
+    });
+  }
+  if (victor) {
+    await prisma.actie.create({
+      data: {
+        leerlingId: victor.id,
+        type: "actie",
+        tekst: "Tussentijdse AVI-controle inplannen.",
+        opvolgdatum: dagen(45), // later
+        auteur: "Zorgcoördinator",
+      },
+    });
+  }
+  console.log("✅ Voorbeeld-opvolgacties aangemaakt (verlopen/binnenkort/later)");
+
   console.log("🎉 Seed voltooid!");
 }
 

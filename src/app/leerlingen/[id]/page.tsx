@@ -14,6 +14,8 @@ import ZorgstatusSelect from "./ZorgstatusSelect";
 import LeerlingActies from "./LeerlingActies";
 import ZorgprofielEditor from "./ZorgprofielEditor";
 import AviChart from "./AviChart";
+import AfgerondToggle from "@/components/AfgerondToggle";
+import { opvolgUrgentie, urgentieColor, urgentieLabel } from "@/lib/opvolging";
 import { verwijderActie } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -198,7 +200,7 @@ export default async function DossierPage({
               className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm"
             >
               <div className="flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     className={
                       a.type === "actie"
@@ -213,14 +215,35 @@ export default async function DossierPage({
                     <span className="text-slate-400">· {a.auteur}</span>
                   )}
                   {a.opvolgdatum && (
-                    <span className="text-amber-600">
-                      · opvolgen: {formatDatum(a.opvolgdatum)}
-                    </span>
+                    <Badge
+                      className={
+                        a.afgerond
+                          ? "border-slate-200 bg-slate-100 text-slate-500"
+                          : urgentieColor[opvolgUrgentie(a.opvolgdatum)]
+                      }
+                    >
+                      Opvolgen: {formatDatum(a.opvolgdatum)}
+                      {!a.afgerond &&
+                        ` · ${urgentieLabel[opvolgUrgentie(a.opvolgdatum)]}`}
+                    </Badge>
                   )}
                 </div>
-                <p className="mt-1 whitespace-pre-wrap text-slate-700">
+                <p
+                  className={`mt-1 whitespace-pre-wrap ${
+                    a.afgerond ? "text-slate-400 line-through" : "text-slate-700"
+                  }`}
+                >
                   {a.tekst}
                 </p>
+                {a.opvolgdatum && (
+                  <div className="mt-2">
+                    <AfgerondToggle
+                      actieId={a.id}
+                      leerlingId={leerling.id}
+                      afgerond={a.afgerond}
+                    />
+                  </div>
+                )}
               </div>
               <form action={verwijderActie}>
                 <input type="hidden" name="id" value={a.id} />

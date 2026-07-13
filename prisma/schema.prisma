@@ -118,6 +118,9 @@ model Actie {
   tekst       String
   opvolgdatum DateTime?
   auteur      String    @default("")
+  // Opvolgstatus: een actie met opvolgdatum kan als afgerond gemarkeerd worden.
+  afgerond    Boolean   @default(false)
+  afgerondOp  DateTime?
 
   createdAt DateTime @default(now())
 }

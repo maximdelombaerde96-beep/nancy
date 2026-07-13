@@ -123,6 +123,20 @@ export async function verwijderActie(formData: FormData) {
   revalidatePath(`/leerlingen/${leerlingId}`);
 }
 
+// Markeer een actie als afgerond of heropen ze.
+export async function zetActieAfgerond(formData: FormData) {
+  const id = String(formData.get("id"));
+  const leerlingId = String(formData.get("leerlingId"));
+  const afgerond = String(formData.get("afgerond")) === "true";
+  if (!id) return;
+  await prisma.actie.update({
+    where: { id },
+    data: { afgerond, afgerondOp: afgerond ? new Date() : null },
+  });
+  revalidatePath(`/leerlingen/${leerlingId}`);
+  revalidatePath("/opvolging");
+}
+
 // Werk de zorgstatus van een leerling bij.
 export async function updateZorgstatus(formData: FormData) {
   const leerlingId = String(formData.get("leerlingId"));
