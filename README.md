@@ -75,11 +75,29 @@ externe API of key nodig. Werkt in **Chrome/Edge**; niet in Safari/Firefox
    de client **`GET /api/opname/transcript/[id]`** pollt.
 
    Opslag-modi (server-side gekozen): **Vercel Blob** (`BLOB_READ_WRITE_TOKEN`,
-   client-upload met server-token), een **generieke presigned PUT** (S3/R2 via
+   client-upload met server-token via de **officiële `@vercel/blob/client`-flow**
+   met `multipart: true`), een **generieke presigned PUT** (S3/R2 via
    `OPNAME_UPLOAD_ENDPOINT`), of — zonder beide — een **fallback** via de eigen
    route (tot ~4,5 MB). AssemblyAI biedt zelf geen client-upload-URL aan (hun
    `/v2/upload` vereist de key en levert een privé-URL), vandaar de tijdelijke
    opslag.
+
+   **Robuuste upload (belangrijk voor gevoelige, lange gesprekken).** De upload is
+   bestand tegen trage of haperende verbindingen (`src/lib/opnameUpload.ts`):
+   - **Chunked/hervatbaar** — de generieke PUT gaat in stukken van 5 MB (`?part=N`,
+     afgesloten met `?complete=M`); Vercel Blob gebruikt zijn eigen multipart. Een
+     hapering herstart enkel het lopende stuk, niet de volledige upload.
+   - **Retry met exponentiële backoff** — transiënte fouten (bv. **503**) worden
+     automatisch opnieuw geprobeerd; de statustekst toont de nieuwe poging.
+   - **Duidelijke foutmelding + retry-knop** — na uitputte pogingen blijft de UI
+     **niet oneindig hangen** op “uploaden”, maar toont een fout met een
+     **“Upload opnieuw proberen”**-knop.
+   - **Nooit verloren** — de opname wordt lokaal (**IndexedDB**,
+     `src/lib/opnameStore.ts`) bewaard tot **upload én transcriptie** bevestigd
+     zijn. Bij wegklikken/navigeren tijdens de verwerking verschijnt een
+     **`beforeunload`-waarschuwing**; een onafgewerkte opname toont bij terugkeer
+     een **hervat-banner**. Na bevestigde transcriptie wordt de lokale kopie
+     opgeruimd.
 
    🔒 **Privacy:** de audio staat **enkel tijdelijk** in de opslag tijdens de
    verwerking en wordt na de transcriptie **verwijderd**

@@ -5,6 +5,18 @@ import { useRouter } from "next/navigation";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import AiUitwerkenKnop from "@/components/AiUitwerkenKnop";
 import { OPNAME_STORAGE_KEY } from "../verslag/nieuw/VerslagWizard";
+import {
+  bewaarOpname,
+  verwijderOpname,
+  haalOpnamesVoorLeerling,
+  type BewaardeOpname,
+} from "@/lib/opnameStore";
+import {
+  haalUploadDoel,
+  uploadNaarOpslag,
+  withRetry,
+  type UploadResultaat,
+} from "@/lib/opnameUpload";
 
 // idle → opnemen → verwerken (upload + AssemblyAI-transcriptie) → klaar / fout
 type Fase = "idle" | "opnemen" | "verwerken" | "klaar" | "fout";
@@ -30,6 +42,31 @@ function escapeRegExp(s: string): string {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function nieuwId(): string {
+  const c = typeof crypto !== "undefined" ? crypto : undefined;
+  return (
+    c?.randomUUID?.() ??
+    `op_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  );
+}
+
+function isAbort(err: unknown): boolean {
+  return (err as { name?: string } | null)?.name === "AbortError";
+}
+
+// Test-seam: laat tests een korte opname kunstmatig "verlengen" tot een groot
+// bestand (30–60 min gesprek) zonder echt zo lang op te nemen.
+function testPad(blob: Blob): Blob {
+  const extra = (window as unknown as { __OPNAME_EXTRA_BYTES__?: number })
+    .__OPNAME_EXTRA_BYTES__;
+  if (typeof extra === "number" && extra > 0) {
+    return new Blob([blob, new Uint8Array(extra)], {
+      type: blob.type || "audio/webm",
+    });
+  }
+  return blob;
+}
 
 // Bouwt een leesbaar transcript met sprekerslabels uit de utterances.
 function bouwTranscript(
@@ -71,6 +108,9 @@ export default function OpnameRecorder({
   const [verwerkStatus, setVerwerkStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Onafgewerkte opnames die lokaal (IndexedDB) bewaard zijn — hervatbaar.
+  const [bewaarde, setBewaarde] = useState<BewaardeOpname[]>([]);
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -80,6 +120,10 @@ export default function OpnameRecorder({
     url: null,
   });
   const pollAbortRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  // De blob + IndexedDB-id van de huidige opname (voor retry en opruimen).
+  const huidigeBlobRef = useRef<Blob | null>(null);
+  const opnameIdRef = useRef<string | null>(null);
 
   const [mounted, setMounted] = useState(false);
   const [mediaSupported, setMediaSupported] = useState(true);
@@ -90,7 +134,19 @@ export default function OpnameRecorder({
         !!navigator.mediaDevices?.getUserMedia &&
         typeof (window as any).MediaRecorder !== "undefined"
     );
+    void ververBewaarde();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function ververBewaarde() {
+    try {
+      const lijst = await haalOpnamesVoorLeerling(leerlingId);
+      // De opname die nu net verwerkt wordt niet dubbel tonen.
+      setBewaarde(lijst.filter((o) => o.id !== opnameIdRef.current));
+    } catch {
+      /* IndexedDB niet beschikbaar — negeren */
+    }
+  }
 
   const speech = useSpeechRecognition({
     onFinal: (t) => setPreview((h) => (h ? `${h} ${t}` : t)),
@@ -110,10 +166,23 @@ export default function OpnameRecorder({
     };
   }, [fase]);
 
+  // Waarschuwing bij wegklikken/navigeren terwijl er nog geüpload/getranscribeerd
+  // wordt — zodat een gevoelig oudergesprek niet ongemerkt verloren gaat.
+  useEffect(() => {
+    if (fase !== "opnemen" && fase !== "verwerken") return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [fase]);
+
   // Opruimen bij unmount.
   useEffect(() => {
     return () => {
       pollAbortRef.current = true;
+      abortRef.current?.abort();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
@@ -130,6 +199,9 @@ export default function OpnameRecorder({
     setUtterances([]);
     setLabels({});
     pollAbortRef.current = true; // stop een eventuele vorige poll
+    abortRef.current?.abort();
+    opnameIdRef.current = null;
+    huidigeBlobRef.current = null;
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
       setAudioUrl(null);
@@ -148,9 +220,10 @@ export default function OpnameRecorder({
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       rec.onstop = () => {
-        const blob = new Blob(chunksRef.current, {
+        const rauw = new Blob(chunksRef.current, {
           type: chunksRef.current[0]?.type || "audio/webm",
         });
+        const blob = testPad(rauw);
         setAudioUrl(URL.createObjectURL(blob));
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -178,75 +251,65 @@ export default function OpnameRecorder({
     recorderRef.current?.stop(); // triggert onstop -> verwerkAudio
   }
 
-  // Uploadt de audio RECHTSTREEKS naar de opslag (buiten onze serverless-route
-  // om, dus geen 4,5MB-limiet). Geeft de opslag-modus + publieke URL terug, of
-  // { mode: "none" } als er geen directe opslag is (dan volgt de fallback).
-  async function uploadRechtstreeks(
-    blob: Blob,
-    onProgress: (pct: number) => void
-  ): Promise<{ mode: string; url: string | null }> {
-    // Test-hook: laat tests de upload simuleren zonder echte opslag.
-    const override = (window as any).__OPNAME_UPLOAD_OVERRIDE__;
-    if (typeof override === "function") {
-      return override(blob, onProgress);
-    }
-
-    const tRes = await fetch("/api/opname/upload-url", { method: "POST" });
-    const t = await tRes.json().catch(() => ({}));
-    if (!tRes.ok || !t?.ok) {
-      throw new Error(t?.message || "Kon geen upload-doel krijgen.");
-    }
-
-    if (t.mode === "none") return { mode: "none", url: null };
-
-    if (t.mode === "put") {
-      await putMetVoortgang(t.uploadUrl, blob, onProgress);
-      return { mode: "put", url: t.downloadUrl };
-    }
-
-    if (t.mode === "blob") {
-      const { upload } = await import("@vercel/blob/client");
-      const res = await upload(t.pathname, blob, {
-        access: "public",
-        contentType: blob.type || "audio/webm",
-        handleUploadUrl: "/api/opname/blob-upload",
-        onUploadProgress: (e: { percentage: number }) =>
-          onProgress(Math.round(e.percentage)),
-      });
-      return { mode: "blob", url: res.url };
-    }
-
-    return { mode: "none", url: null };
+  // Meldt een nieuwe poging in de statustekst (retry met backoff).
+  function meldRetry(poging: number, maxPogingen: number) {
+    setVerwerkStatus(
+      `Verbinding hapert — nieuwe poging ${poging}/${maxPogingen}…`
+    );
   }
 
-  // Directe HTTP PUT met echte upload-voortgang (via XHR).
-  function putMetVoortgang(
-    url: string,
+  // Voert de directe upload uit (met retry + chunking) en geeft de opslag-URL
+  // terug. Behoudt de test-hook voor gesimuleerde uploads.
+  async function doeUpload(
     blob: Blob,
-    onProgress: (pct: number) => void
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", url);
-      xhr.setRequestHeader("content-type", blob.type || "audio/webm");
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      };
-      xhr.onload = () =>
-        xhr.status >= 200 && xhr.status < 300
-          ? resolve()
-          : reject(new Error(`Upload mislukt (${xhr.status}).`));
-      xhr.onerror = () => reject(new Error("Netwerkfout tijdens de upload."));
-      xhr.send(blob);
+    signal: AbortSignal
+  ): Promise<UploadResultaat> {
+    const override = (window as any).__OPNAME_UPLOAD_OVERRIDE__;
+    if (typeof override === "function") {
+      return override(blob, (pct: number) => setUploadPct(pct));
+    }
+
+    const doel = await withRetry(() => haalUploadDoel(signal), {
+      signal,
+      onRetry: meldRetry,
+    });
+    return uploadNaarOpslag(blob, doel, {
+      signal,
+      onProgress: (pct) => setUploadPct(pct),
+      onRetry: meldRetry,
     });
   }
 
-  // Upload het audiofragment (rechtstreeks) en pollt AssemblyAI tot het
-  // transcript klaar is.
+  // Uploadt het audiofragment (rechtstreeks, met retry + chunking) en pollt
+  // AssemblyAI tot het transcript klaar is.
   async function verwerkAudio(blob: Blob) {
+    huidigeBlobRef.current = blob;
+
+    // Bewaar de opname lokaal (IndexedDB) tot upload + transcriptie bevestigd
+    // zijn, zodat ze niet verloren gaat bij een fout of wegnavigeren.
+    if (!opnameIdRef.current) {
+      opnameIdRef.current = nieuwId();
+      try {
+        await bewaarOpname({
+          id: opnameIdRef.current,
+          leerlingId,
+          leerlingNaam,
+          createdAt: Date.now(),
+          seconden,
+          mime: blob.type || "audio/webm",
+          blob,
+        });
+      } catch {
+        /* IndexedDB niet beschikbaar — ga toch verder met de upload */
+      }
+    }
+
     pollAbortRef.current = false;
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
+    const signal = controller.signal;
+
     setFase("verwerken");
     setError(null);
     setVerwerkStap("uploaden");
@@ -254,9 +317,7 @@ export default function OpnameRecorder({
     setVerwerkStatus("Audio uploaden…");
 
     try {
-      const opslag = await uploadRechtstreeks(blob, (pct) => {
-        setUploadPct(pct);
-      });
+      const opslag = await doeUpload(blob, signal);
       opslagRef.current = opslag;
 
       let id: string;
@@ -267,6 +328,7 @@ export default function OpnameRecorder({
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ audioUrl: opslag.url }),
+          signal,
         });
         const startData = await startRes.json().catch(() => ({}));
         if (!startRes.ok || !startData?.ok) {
@@ -279,6 +341,7 @@ export default function OpnameRecorder({
           method: "POST",
           headers: { "content-type": blob.type || "audio/webm" },
           body: blob,
+          signal,
         });
         const startData = await startRes.json().catch(() => ({}));
         if (!startRes.ok || !startData?.ok) {
@@ -293,9 +356,9 @@ export default function OpnameRecorder({
 
       for (let i = 0; i < MAX_POLLS; i++) {
         await sleep(POLL_INTERVAL_MS);
-        if (pollAbortRef.current) return;
+        if (pollAbortRef.current || signal.aborted) return;
 
-        const r = await fetch(`/api/opname/transcript/${id}`);
+        const r = await fetch(`/api/opname/transcript/${id}`, { signal });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || d?.ok === false) {
           throw new Error(d?.message || `Fout ${r.status}`);
@@ -304,18 +367,18 @@ export default function OpnameRecorder({
         const secs = Math.round((Date.now() - begin) / 1000);
         if (d.done) {
           verwijderTijdelijkeAudio(); // privacy: audio niet bewaren
+          await bevestigKlaar(); // lokale kopie mag nu weg
           toonResultaat(d.utterances ?? [], d.text ?? "");
           return;
         }
-        const statusLabel =
-          d.status === "queued" ? "in wachtrij" : "bezig";
+        const statusLabel = d.status === "queued" ? "in wachtrij" : "bezig";
         setVerwerkStatus(
           `Transcriberen bij AssemblyAI (${statusLabel})… ${secs}s`
         );
       }
       throw new Error("Time-out: de transcriptie duurde te lang.");
     } catch (e) {
-      if (pollAbortRef.current) return;
+      if (pollAbortRef.current || isAbort(e)) return;
       setError((e as Error).message);
       setFase("fout");
     }
@@ -331,6 +394,52 @@ export default function OpnameRecorder({
       body: JSON.stringify({ url, mode }),
     }).catch(() => {});
     opslagRef.current = { mode: "none", url: null };
+  }
+
+  // Transcriptie bevestigd → lokale (IndexedDB) kopie mag verwijderd worden.
+  async function bevestigKlaar() {
+    const id = opnameIdRef.current;
+    opnameIdRef.current = null;
+    huidigeBlobRef.current = null;
+    if (id) {
+      try {
+        await verwijderOpname(id);
+      } catch {
+        /* negeren */
+      }
+    }
+    void ververBewaarde();
+  }
+
+  // Retry na een fout: gebruik de bewaarde blob en probeer opnieuw. De opname
+  // is dankzij IndexedDB niet verloren gegaan.
+  function opnieuwProberen() {
+    const blob = huidigeBlobRef.current;
+    if (!blob) return;
+    void verwerkAudio(blob);
+  }
+
+  // Hervat een lokaal bewaarde (onafgewerkte) opname.
+  async function hervat(op: BewaardeOpname) {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioUrl(URL.createObjectURL(op.blob));
+    setSeconden(op.seconden);
+    setTranscript("");
+    setUtterances([]);
+    setLabels({});
+    opnameIdRef.current = op.id;
+    huidigeBlobRef.current = op.blob;
+    setBewaarde((lijst) => lijst.filter((o) => o.id !== op.id));
+    await verwerkAudio(op.blob);
+  }
+
+  async function verwijderBewaard(op: BewaardeOpname) {
+    try {
+      await verwijderOpname(op.id);
+    } catch {
+      /* negeren */
+    }
+    void ververBewaarde();
   }
 
   function toonResultaat(u: Utterance[], volledigeTekst: string) {
@@ -394,6 +503,50 @@ export default function OpnameRecorder({
 
   return (
     <div className="space-y-5">
+      {/* Onafgewerkte, lokaal bewaarde opnames — hervatbaar */}
+      {fase !== "opnemen" && fase !== "verwerken" && bewaarde.length > 0 && (
+        <div
+          data-testid="bewaarde-opnames"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-5"
+        >
+          <h2 className="text-sm font-semibold text-amber-800">
+            💾 Onafgewerkte opname{bewaarde.length > 1 ? "s" : ""} gevonden
+          </h2>
+          <p className="mt-1 text-xs text-amber-700">
+            Deze opname{bewaarde.length > 1 ? "s zijn" : " is"} lokaal bewaard
+            gebleven (upload of transcriptie was nog niet afgerond). Je kan{" "}
+            {bewaarde.length > 1 ? "ze" : "ze"} hervatten.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {bewaarde.map((op) => (
+              <li
+                key={op.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2"
+              >
+                <span className="text-sm text-slate-700">
+                  Opname van {formatTijd(op.seconden)} —{" "}
+                  {new Date(op.createdAt).toLocaleString("nl-BE")}
+                </span>
+                <span className="flex gap-2">
+                  <button
+                    onClick={() => hervat(op)}
+                    className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700"
+                  >
+                    ▶️ Hervatten
+                  </button>
+                  <button
+                    onClick={() => verwijderBewaard(op)}
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    Verwijderen
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Opnamepaneel */}
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center gap-4">
@@ -462,8 +615,9 @@ export default function OpnameRecorder({
           🔒 Privacy: het audiofragment wordt <strong>rechtstreeks</strong> naar
           tijdelijke opslag geüpload en enkel voor de transcriptie naar
           AssemblyAI gestuurd; het wordt daarna verwijderd en <strong>niet</strong>{" "}
-          in onze database bewaard. Enkel het teksttranscript wordt opgeslagen.
-          Je kan het audiofragment hieronder wél zelf lokaal downloaden.
+          in onze database bewaard. Tot de upload én transcriptie bevestigd zijn,
+          blijft de opname veilig lokaal (in je browser) bewaard. Je kan het
+          audiofragment hieronder ook zelf lokaal downloaden.
         </p>
       </div>
 
@@ -482,9 +636,9 @@ export default function OpnameRecorder({
                   style={{ width: `${uploadPct}%` }}
                 />
               </div>
-              <p className="mt-2 text-xs text-brand-700">
-                De volledige opname wordt geüpload — ook lange gesprekken en
-                meetings van 30–60+ minuten.
+              <p className="mt-2 text-xs text-brand-700" data-testid="verwerk-status">
+                {verwerkStatus ||
+                  "De volledige opname wordt geüpload — ook lange gesprekken en meetings van 30–60+ minuten."}
               </p>
             </>
           ) : (
@@ -504,16 +658,36 @@ export default function OpnameRecorder({
         </div>
       )}
 
-      {/* Fout bij transcriptie */}
+      {/* Fout bij upload/transcriptie */}
       {fase === "fout" && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm">
           <p className="font-medium text-red-700">
-            ⚠️ Transcriptie mislukt: {error}
+            ⚠️ Verwerking mislukt: {error}
           </p>
           <p className="mt-1 text-red-600">
-            Je kan het <strong>opnieuw opnemen</strong>, het audiofragment
-            downloaden, of het transcript hieronder handmatig typen.
+            Je opname is <strong>niet verloren</strong> — ze is lokaal bewaard.
+            Probeer opnieuw, download het audiofragment, of typ het transcript
+            hieronder handmatig.
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {huidigeBlobRef.current && (
+              <button
+                onClick={opnieuwProberen}
+                data-testid="retry-knop"
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                🔄 Upload opnieuw proberen
+              </button>
+            )}
+            {audioUrl && (
+              <button
+                onClick={downloadAudio}
+                className="rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+              >
+                ⬇️ Audiofragment downloaden
+              </button>
+            )}
+          </div>
         </div>
       )}
 
