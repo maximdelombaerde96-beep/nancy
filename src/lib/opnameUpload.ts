@@ -2,18 +2,42 @@
 //  Client-side upload van opgenomen audio naar tijdelijke opslag.
 //
 //  Doel: lange oudergesprekken (30–60+ min) betrouwbaar uploaden, ook bij
-//  trage of haperende verbindingen, zonder dat de opname verloren gaat:
+//  trage of haperende verbindingen, zonder dat de opname verloren gaat of de
+//  UI eindeloos blijft hangen:
 //    - retry met exponentiële backoff (transiënte 5xx/netwerkfouten)
-//    - chunked/hervatbare PUT-uploads (een hapering herstart niet alles)
-//    - Vercel Blob via de officiële client-upload-flow met multipart:true
+//    - een "stall-watchdog": als er te lang géén voortgang is, breken we de
+//      poging af i.p.v. eindeloos te blijven wachten (bv. bij een endpoint die
+//      structureel 503 geeft) → nieuwe poging of duidelijke fout + retry-knop
+//    - chunked/hervatbare PUT-uploads voor de generieke opslag
+//    - Vercel Blob standaard als één gewone PUT (niet multipart): de
+//      multipart-endpoint (mpu) bleek structureel 503 te geven en is voor onze
+//      bestandsgroottes onnodig; multipart enkel voor écht grote bestanden
 //    - annuleerbaar via een AbortSignal
 // ============================================================================
 
-// Grootte per chunk voor de generieke PUT-opslag. Groot genoeg om overhead te
-// beperken, klein genoeg dat een hapering weinig werk kost om over te doen.
+// Grootte per chunk voor de generieke PUT-opslag.
 export const CHUNK_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_POGINGEN = 5;
 const MAX_BACKOFF_MS = 15000;
+
+// Boven deze grootte gebruikt Vercel Blob multipart (parallelle delen). Onze
+// opnames (webm/opus ≈ 0,5–1 MB/min) blijven ook bij 60+ min ruim hieronder,
+// dus in de praktijk uploaden we altijd als één gewone PUT en vermijden we de
+// mpu-endpoint volledig.
+const BLOB_MULTIPART_DREMPEL = 100 * 1024 * 1024; // 100 MB
+
+// Als een upload-poging langer dan dit géén voortgang maakt, beschouwen we ze
+// als "vastgelopen" en breken we af (retry-baar). Zo blijft de UI nooit
+// eindeloos op 0% hangen, ook niet als een endpoint blijft falen zonder ooit
+// bytes te versturen. Override-baar in tests.
+function stallMs(): number {
+  const t = (globalThis as { __OPNAME_STALL_MS__?: number }).__OPNAME_STALL_MS__;
+  return typeof t === "number" && t > 0 ? t : 20000;
+}
+
+// Bestand mag hoogstens zo groot zijn voor de fallback via onze eigen route
+// (Vercel serverless body-limiet ≈ 4,5 MB).
+export const FALLBACK_MAX_BYTES = 4 * 1024 * 1024;
 
 export interface UploadDoel {
   mode: "blob" | "put" | "none";
@@ -87,7 +111,9 @@ export async function withRetry<T>(
   throw laatsteFout;
 }
 
-// Eén HTTP PUT met echte upload-voortgang (via XHR) en annuleerbaar.
+// Eén HTTP PUT met echte upload-voortgang (via XHR), annuleerbaar én met een
+// stall-watchdog: als er stallMs() lang geen voortgang is, wordt de poging
+// afgebroken met een (retry-bare) time-outfout i.p.v. eindeloos te wachten.
 function putMetVoortgang(
   url: string,
   body: Blob,
@@ -103,15 +129,27 @@ function putMetVoortgang(
     xhr.open("PUT", url);
     xhr.setRequestHeader("content-type", body.type || "audio/webm");
 
+    let gestald = false;
+    let watchdog: ReturnType<typeof setTimeout>;
+    const herstartWatchdog = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        gestald = true;
+        xhr.abort();
+      }, stallMs());
+    };
+
     const onAbort = () => xhr.abort();
     signal?.addEventListener("abort", onAbort, { once: true });
-    const opruimen = () => signal?.removeEventListener("abort", onAbort);
+    const opruimen = () => {
+      clearTimeout(watchdog);
+      signal?.removeEventListener("abort", onAbort);
+    };
 
-    if (onProgress) {
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) onProgress(e.loaded);
-      };
-    }
+    xhr.upload.onprogress = (e) => {
+      herstartWatchdog();
+      if (onProgress && e.lengthComputable) onProgress(e.loaded);
+    };
     xhr.onload = () => {
       opruimen();
       if (xhr.status >= 200 && xhr.status < 300) resolve();
@@ -123,8 +161,13 @@ function putMetVoortgang(
     };
     xhr.onabort = () => {
       opruimen();
-      reject(new DOMException("Geannuleerd", "AbortError"));
+      if (gestald) {
+        reject(new Error("Upload reageert niet (time-out)."));
+      } else {
+        reject(new DOMException("Geannuleerd", "AbortError"));
+      }
     };
+    herstartWatchdog();
     xhr.send(body);
   });
 }
@@ -183,29 +226,90 @@ async function chunkedPut(
   opts.onProgress?.(100);
 }
 
-// Vercel Blob via de officiële client-upload-flow. multipart:true zorgt voor
-// automatische chunking + hervatten van grote bestanden en lost de 503's op
-// die bij één grote PUT konden optreden.
+// De werkelijke Vercel-Blob-uploadfunctie. Injecteerbaar voor tests (zonder
+// echte Vercel-dienst) via window.__OPNAME_BLOB_UPLOADER__.
+type BlobUploadOpts = {
+  access: "public";
+  contentType: string;
+  handleUploadUrl: string;
+  multipart: boolean;
+  abortSignal?: AbortSignal;
+  onUploadProgress?: (e: { loaded: number; total: number; percentage: number }) => void;
+};
+type BlobUploader = (
+  pathname: string,
+  body: Blob,
+  options: BlobUploadOpts
+) => Promise<{ url: string }>;
+
+async function getBlobUploader(): Promise<BlobUploader> {
+  const test = (globalThis as { __OPNAME_BLOB_UPLOADER__?: BlobUploader })
+    .__OPNAME_BLOB_UPLOADER__;
+  if (typeof test === "function") return test;
+  const mod = await import("@vercel/blob/client");
+  return mod.upload as unknown as BlobUploader;
+}
+
+// Vercel Blob via de officiële client-upload-flow. Standaard als één gewone PUT
+// (multipart pas > 100 MB) om de structureel falende mpu-endpoint te vermijden.
+// Met stall-watchdog + retry, zodat een blijvend falende dienst niet eindeloos
+// op 0% blijft hangen maar na de pogingen een duidelijke fout oplevert.
 async function blobUpload(
   pathname: string,
   blob: Blob,
   opts: UploadOpties
 ): Promise<string> {
-  const { upload } = await import("@vercel/blob/client");
-  const res = await withRetry(
-    () =>
-      upload(pathname, blob, {
-        access: "public",
-        contentType: blob.type || "audio/webm",
-        handleUploadUrl: "/api/opname/blob-upload",
-        multipart: true,
-        abortSignal: opts.signal,
-        onUploadProgress: (e: { percentage: number }) =>
-          opts.onProgress?.(Math.round(e.percentage)),
-      }),
-    { signal: opts.signal, onRetry: opts.onRetry }
+  const uploader = await getBlobUploader();
+  const multipart = blob.size > BLOB_MULTIPART_DREMPEL;
+
+  return withRetry(
+    async () => {
+      // Interne controller: aborten we zelf bij een stall, of extern (gebruiker).
+      const intern = new AbortController();
+      let gestald = false;
+      const onExtern = () => intern.abort();
+      opts.signal?.addEventListener("abort", onExtern, { once: true });
+
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const herstartWatchdog = () => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+          gestald = true;
+          intern.abort();
+        }, stallMs());
+      };
+      herstartWatchdog();
+
+      try {
+        const res = await uploader(pathname, blob, {
+          access: "public",
+          contentType: blob.type || "audio/webm",
+          handleUploadUrl: "/api/opname/blob-upload",
+          multipart,
+          abortSignal: intern.signal,
+          onUploadProgress: (e) => {
+            herstartWatchdog();
+            opts.onProgress?.(Math.round(e.percentage));
+          },
+        });
+        return res.url;
+      } catch (err) {
+        // Door onze eigen stall-watchdog afgebroken → retry-bare fout.
+        if (gestald) {
+          throw new Error("Upload reageert niet (time-out).");
+        }
+        // Extern (gebruiker) geannuleerd → doorgeven, geen retry.
+        if (opts.signal?.aborted) {
+          throw new DOMException("Geannuleerd", "AbortError");
+        }
+        throw err;
+      } finally {
+        clearTimeout(watchdog);
+        opts.signal?.removeEventListener("abort", onExtern);
+      }
+    },
+    { pogingen: 3, signal: opts.signal, onRetry: opts.onRetry }
   );
-  return res.url;
 }
 
 // Vraagt het upload-doel op bij onze server (die de opslagkeuze maakt).

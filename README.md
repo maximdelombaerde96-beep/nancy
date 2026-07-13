@@ -75,20 +75,31 @@ externe API of key nodig. Werkt in **Chrome/Edge**; niet in Safari/Firefox
    de client **`GET /api/opname/transcript/[id]`** pollt.
 
    Opslag-modi (server-side gekozen): **Vercel Blob** (`BLOB_READ_WRITE_TOKEN`,
-   client-upload met server-token via de **officiële `@vercel/blob/client`-flow**
-   met `multipart: true`), een **generieke presigned PUT** (S3/R2 via
-   `OPNAME_UPLOAD_ENDPOINT`), of — zonder beide — een **fallback** via de eigen
-   route (tot ~4,5 MB). AssemblyAI biedt zelf geen client-upload-URL aan (hun
-   `/v2/upload` vereist de key en levert een privé-URL), vandaar de tijdelijke
-   opslag.
+   client-upload met server-token via de **officiële `@vercel/blob/client`-flow**),
+   een **generieke presigned PUT** (S3/R2 via `OPNAME_UPLOAD_ENDPOINT`), of —
+   zonder beide — een **fallback** via de eigen route (tot ~4,5 MB). AssemblyAI
+   biedt zelf geen client-upload-URL aan (hun `/v2/upload` vereist de key en
+   levert een privé-URL), vandaar de tijdelijke opslag.
 
    **Robuuste upload (belangrijk voor gevoelige, lange gesprekken).** De upload is
-   bestand tegen trage of haperende verbindingen (`src/lib/opnameUpload.ts`):
-   - **Chunked/hervatbaar** — de generieke PUT gaat in stukken van 5 MB (`?part=N`,
-     afgesloten met `?complete=M`); Vercel Blob gebruikt zijn eigen multipart. Een
-     hapering herstart enkel het lopende stuk, niet de volledige upload.
+   bestand tegen trage of haperende verbindingen én tegen een falende opslag
+   (`src/lib/opnameUpload.ts`):
+   - **Geen multipart bij Vercel Blob standaard** — Blob uploadt als **één gewone
+     PUT**. De multipart-endpoint (`…/blob/mpu`) bleek structureel **503** te geven
+     en is voor onze bestandsgroottes (webm/opus ≈ 0,5–1 MB/min) onnodig; multipart
+     wordt pas ingezet boven **100 MB**. Dit lost de vastgelopen mpu-upload op.
+   - **Stall-watchdog** — als een poging **te lang géén voortgang** maakt (bv. een
+     endpoint die blijft 503’en zonder ooit bytes te versturen), wordt ze
+     afgebroken i.p.v. eindeloos te wachten. De Vercel-Blob-client doet zelf tot
+     **10** interne retries; zonder deze watchdog bleef de UI daardoor minutenlang
+     op **0 %** hangen. Nu volgt na de pogingen een **duidelijke fout + knop**.
    - **Retry met exponentiële backoff** — transiënte fouten (bv. **503**) worden
      automatisch opnieuw geprobeerd; de statustekst toont de nieuwe poging.
+   - **Server-fallback voor kortere opnames** — als de directe upload structureel
+     faalt en het bestand **≤ 4 MB** is, wordt de opname alsnog via de eigen route
+     verwerkt (server → AssemblyAI), zodat een kort gesprek toch doorgaat.
+   - **Chunked/hervatbaar** (generieke PUT) — in stukken van 5 MB (`?part=N`,
+     afgesloten met `?complete=M`); een hapering herstart enkel het lopende stuk.
    - **Duidelijke foutmelding + retry-knop** — na uitputte pogingen blijft de UI
      **niet oneindig hangen** op “uploaden”, maar toont een fout met een
      **“Upload opnieuw proberen”**-knop.

@@ -15,6 +15,7 @@ import {
   haalUploadDoel,
   uploadNaarOpslag,
   withRetry,
+  FALLBACK_MAX_BYTES,
   type UploadResultaat,
 } from "@/lib/opnameUpload";
 
@@ -317,7 +318,25 @@ export default function OpnameRecorder({
     setVerwerkStatus("Audio uploaden…");
 
     try {
-      const opslag = await doeUpload(blob, signal);
+      let opslag: UploadResultaat;
+      try {
+        opslag = await doeUpload(blob, signal);
+      } catch (uploadErr) {
+        if (pollAbortRef.current || isAbort(uploadErr)) return;
+        // Fallback voor kleinere opnames: als de directe upload structureel
+        // faalt (bv. Blob-dienst 503), verwerk dan via onze eigen route (server
+        // uploadt zelf naar AssemblyAI, binnen de ~4,5MB-limiet). Zo raakt een
+        // kort gesprek toch verwerkt i.p.v. te blijven hangen.
+        if (blob.size <= FALLBACK_MAX_BYTES) {
+          setVerwerkStatus(
+            "Directe upload lukt niet — we verwerken de opname via de server…"
+          );
+          setUploadPct(100);
+          opslag = { mode: "none", url: null };
+        } else {
+          throw uploadErr;
+        }
+      }
       opslagRef.current = opslag;
 
       let id: string;
