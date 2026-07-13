@@ -12,6 +12,7 @@ import { statusColor, statusLabel, type AviStatus } from "@/lib/avi";
 import ActieForm from "./ActieForm";
 import ZorgstatusSelect from "./ZorgstatusSelect";
 import LeerlingActies from "./LeerlingActies";
+import ZorgprofielEditor from "./ZorgprofielEditor";
 import { verwijderActie } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -88,64 +89,32 @@ export default async function DossierPage({
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Zorgprofiel */}
+        {/* Zorgprofiel (bewerkbaar) */}
         <section className="rounded-xl border border-slate-200 bg-white p-5 lg:col-span-1">
           <h2 className="mb-3 text-lg font-semibold text-slate-800">
             Zorgprofiel
           </h2>
-          {zp ? (
-            <div className="space-y-4 text-sm">
-              <div>
-                <div className="font-medium text-slate-700">Logopedie</div>
-                {zp.logo ? (
-                  <p className="text-slate-600">
-                    ✅ {zp.logoOmschrijving || "Actief"}
-                  </p>
-                ) : (
-                  <p className="text-slate-400">Geen</p>
-                )}
-              </div>
-              <div>
-                <div className="font-medium text-slate-700">Leersteun</div>
-                {zp.leersteun ? (
-                  <p className="text-slate-600">
-                    ✅ {zp.leersteunUren} u/week · {zp.leersteunType || "—"}
-                  </p>
-                ) : (
-                  <p className="text-slate-400">Geen</p>
-                )}
-              </div>
-              <div>
-                <div className="font-medium text-slate-700">Diagnoses</div>
-                {zp.diagnoses.length > 0 ? (
-                  <ul className="mt-1 space-y-1">
-                    {zp.diagnoses.map((d) => (
-                      <li key={d.id} className="text-slate-600">
-                        • {d.type}{" "}
-                        <span className="text-slate-400">
-                          ({formatDatum(d.datum)}, {d.bron})
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-slate-400">Geen</p>
-                )}
-              </div>
-              <div>
-                <div className="font-medium text-slate-700">Zorgmaatregelen</div>
-                <p className="whitespace-pre-wrap text-slate-600">
-                  {zp.zorgmaatregelen || (
-                    <span className="text-slate-400">Geen</span>
-                  )}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400">
-              Nog geen zorgprofiel voor deze leerling.
-            </p>
-          )}
+          <ZorgprofielEditor
+            leerlingId={leerling.id}
+            zorgprofiel={
+              zp
+                ? {
+                    logo: zp.logo,
+                    logoOmschrijving: zp.logoOmschrijving,
+                    leersteun: zp.leersteun,
+                    leersteunUren: zp.leersteunUren,
+                    leersteunType: zp.leersteunType,
+                    zorgmaatregelen: zp.zorgmaatregelen,
+                    diagnoses: zp.diagnoses.map((d) => ({
+                      id: d.id,
+                      type: d.type,
+                      datum: d.datum.toISOString().slice(0, 10),
+                      bron: d.bron,
+                    })),
+                  }
+                : null
+            }
+          />
         </section>
 
         {/* AVI-tijdlijn */}
