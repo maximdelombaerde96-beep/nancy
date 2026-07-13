@@ -106,16 +106,24 @@ database uit `DATABASE_URL_UNPOOLED`. Er is geen extra stap nodig.
 
 ### Database eenmalig vullen met testdata (seed)
 
-De seed draai je één keer handmatig tegen de productiedatabase (hij maakt eerst
-schoon en zet er dan de fictieve testdata in):
+**Aanbevolen (via de browser, geen geheimen nodig):** log in op de live app en
+ga naar **`/admin/seed`**. Die pagina toont een knop "Testdata plaatsen".
+Onderliggend roept ze de beveiligde route `POST /api/admin/seed` aan, die:
+
+- enkel werkt voor een **ingelogde** gebruiker (via het bestaande poortje +
+  een extra auth-check in de route zelf), en
+- **weigert** te draaien zodra er al leerlingen in de database staan (geen
+  risico dat echte data overschreven wordt).
+
+Zo hoef je geen productie-connectiestring lokaal te gebruiken.
+
+**Alternatief (lokaal script):** wil je toch vanaf je eigen machine seeden, dan
+kan het klassieke script — let op: dit **verwijdert eerst alle bestaande data**
+en is dus enkel voor een initiële vulling:
 
 ```bash
-# lokaal, met de Neon-URL's uit je Vercel-project:
 DATABASE_URL="<neon-pooled-url>" DATABASE_URL_UNPOOLED="<neon-direct-url>" npm run db:seed
 ```
-
-> ⚠️ De seed verwijdert eerst alle bestaande data. Draai hem enkel voor de
-> initiële vulling, niet op een database met echte gegevens.
 
 ## Datamodel
 
@@ -136,6 +144,7 @@ src/
     auth.ts          # wachtwoordbeveiliging (Web Crypto)
     avi.ts           # AVI-berekening (niveau + status) + grafiekschaal
     opvolging.ts     # urgentie-classificatie van opvolgacties
+    seedData.ts      # gedeelde seed-inserts (script + /api/admin/seed)
     claude.ts        # 👈 Claude API-integratie + mock (hier je key)
     format.ts        # weergave-helpers
   components/        # NavBar, Badge, PrintButton, AfgerondToggle
@@ -146,4 +155,6 @@ src/
     opvolging/       # opvolgacties-overzicht
     avi/             # AVI-invoer + klasoverzicht
     normtabel/       # normtabel-configuratie
+    admin/seed/      # beveiligde pagina om eenmalig te seeden
+    api/admin/seed/  # beveiligde POST-route (auth + guard op bestaande data)
 ```
