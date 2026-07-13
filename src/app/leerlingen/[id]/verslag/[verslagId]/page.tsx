@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatDatum } from "@/lib/format";
+import PrintButton from "@/components/PrintButton";
 
 export const dynamic = "force-dynamic";
 
@@ -21,14 +22,17 @@ export default async function VerslagDetailPage({
 
   return (
     <div className="space-y-5">
-      <Link
-        href={`/leerlingen/${id}`}
-        className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"
-      >
-        ← Terug naar dossier
-      </Link>
+      <div className="no-print flex items-center justify-between">
+        <Link
+          href={`/leerlingen/${id}`}
+          className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"
+        >
+          ← Terug naar dossier
+        </Link>
+        <PrintButton />
+      </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-6">
+      <div className="rounded-xl border border-slate-200 bg-white p-6 print:border-0 print:p-0">
         <div className="mb-4 border-b border-slate-100 pb-4">
           <h1 className="text-xl font-bold text-slate-800">
             Verslag — {verslag.leerling.voornaam} {verslag.leerling.achternaam}

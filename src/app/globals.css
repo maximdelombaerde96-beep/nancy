@@ -9,3 +9,23 @@
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
+
+/* Print / PDF-export: verberg navigatie en knoppen, gebruik de volle breedte. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+  @page {
+    margin: 16mm;
+  }
+}

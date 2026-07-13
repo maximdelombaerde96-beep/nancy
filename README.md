@@ -28,7 +28,8 @@ Handige scripts:
 
 - **Dashboard** (`/dashboard`) — filter leerlingen op klas, leerjaar, zorgstatus, **AVI-status** (onder/op/boven niveau), **logopedie**, **leersteun** en **type diagnose**; overzichtstabel met directe link naar het dossier en een korte samenvatting.
 - **Leerlingenlijst** (`/leerlingen`) — met zoeken (naam) en filteren op klas, leerjaar en zorgstatus. Volledige **CRUD**: leerling aanmaken, bewerken, **archiveren/herstellen** en definitief verwijderen — allemaal via de UI.
-- **Dossier** (`/leerlingen/[id]`) — alles op één scherm. Het **zorgprofiel is volledig bewerkbaar** (logopedie, leersteun, diagnoses toevoegen/bewerken/verwijderen, zorgmaatregelen). AVI-tijdlijn, acties/notities en verslagen; zorgstatus direct aanpasbaar.
+- **Opvolgacties** (`/opvolging`) — alle acties met een opvolgdatum, gesorteerd op vervaldatum, met status **open/afgerond** en filter op **verlopen / binnenkort (≤ 14 dagen) / later** en per leerling.
+- **Dossier** (`/leerlingen/[id]`) — alles op één scherm. Het **zorgprofiel is volledig bewerkbaar** (logopedie, leersteun, diagnoses toevoegen/bewerken/verwijderen, zorgmaatregelen). **AVI-evolutiegrafiek** + tijdlijn, acties/notities (met opvolgstatus) en verslagen; zorgstatus direct aanpasbaar. **Print / PDF-export** van het volledige dossier (`/leerlingen/[id]/print`) en van een verslag via de browser ("Opslaan als PDF").
 - **AVI-module** (`/avi`) — je vult enkel **leestijd + fouten** in; de tool berekent automatisch het **AVI-niveau** en de **status** (onder/op/boven niveau) op basis van de normtabel, en toont een **klasoverzicht**.
 - **Normtabel** (`/normtabel`) — configureerbaar scherm voor de AVI-grenzen per leerjaar/periode.
 - **Verslag-module** (`/leerlingen/[id]/verslag/nieuw`) — typ losse notities → laat er een professioneel verslag met actiepunten + opvolgdatum van maken → beoordeel/pas aan → sla op bij de leerling.
