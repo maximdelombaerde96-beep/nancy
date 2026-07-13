@@ -39,8 +39,11 @@ export async function expectedToken(): Promise<string | null> {
 }
 
 // Zorgt dat een redirect-pad intern is (voorkomt open-redirect).
+// De bare root "/" is zelf een redirect naar /leerlingen; we sturen daarom
+// meteen naar /leerlingen om een dubbele redirect (die na een server-action
+// niet betrouwbaar client-side gevolgd wordt) te vermijden.
 export function veiligPad(pad: string | undefined | null): string {
-  if (!pad) return "/";
+  if (!pad || pad === "/") return "/leerlingen";
   if (pad.startsWith("/") && !pad.startsWith("//")) return pad;
-  return "/";
+  return "/leerlingen";
 }
