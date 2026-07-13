@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import AiUitwerkenKnop from "@/components/AiUitwerkenKnop";
 import { OPNAME_STORAGE_KEY } from "../verslag/nieuw/VerslagWizard";
 
 type Fase = "idle" | "opnemen" | "gestopt";
@@ -213,13 +214,16 @@ export default function OpnameRecorder({
 
       {/* Transcript */}
       <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-800">Transcript</h2>
-          {interim && (
-            <span className="text-xs italic text-slate-400">
-              hoorde: {interim}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {interim && (
+              <span className="text-xs italic text-slate-400">
+                hoorde: {interim}
+              </span>
+            )}
+            <AiUitwerkenKnop tekst={transcript} onVervang={setTranscript} compact />
+          </div>
         </div>
         <textarea
           rows={10}

@@ -7,6 +7,7 @@ import {
   type GenereerResult,
 } from "../actions";
 import DicteerKnop from "@/components/DicteerKnop";
+import AiUitwerkenKnop from "@/components/AiUitwerkenKnop";
 
 // sessionStorage-sleutel waarmee een opgenomen gesprek (transcript) wordt
 // doorgegeven aan dit formulier.
@@ -107,7 +108,10 @@ export default function VerslagWizard({
             <label className="text-xs font-medium text-slate-500">
               Notities over het gesprek met/over {leerlingNaam}
             </label>
-            <DicteerKnop onTekst={voegDictaatToe} compact />
+            <div className="flex flex-wrap items-center gap-2">
+              <DicteerKnop onTekst={voegDictaatToe} compact />
+              <AiUitwerkenKnop tekst={brontekst} onVervang={setBrontekst} compact />
+            </div>
           </div>
           <textarea
             name="brontekst"

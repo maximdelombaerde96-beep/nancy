@@ -41,7 +41,7 @@ Handige scripts:
 - **Dossier** (`/leerlingen/[id]`) — alles op één scherm. Het **zorgprofiel is volledig bewerkbaar** (logopedie, leersteun, diagnoses toevoegen/bewerken/verwijderen, zorgmaatregelen). **AVI-evolutiegrafiek** + tijdlijn, acties/notities (met opvolgstatus) en verslagen; zorgstatus direct aanpasbaar. **Print / PDF-export** van het volledige dossier (`/leerlingen/[id]/print`) en van een verslag via de browser ("Opslaan als PDF").
 - **AVI-module** (`/avi`) — je vult enkel **leestijd + fouten** in; de tool berekent automatisch het **AVI-niveau** en de **status** (onder/op/boven niveau) op basis van de normtabel, en toont een **klasoverzicht**.
 - **Normtabel** (`/normtabel`) — configureerbaar scherm voor de AVI-grenzen per leerjaar/periode.
-- **Verslag-module** (`/leerlingen/[id]/verslag/nieuw`) — typ losse notities (of **dicteer** ze met de microfoon-knop) → laat er een professioneel verslag met actiepunten + opvolgdatum van maken → beoordeel/pas aan → sla op bij de leerling.
+- **Verslag-module** (`/leerlingen/[id]/verslag/nieuw`) — typ losse notities (of **dicteer** ze met de microfoon-knop, of laat ze door **AI uitwerken** tot een net verslag) → laat er een professioneel verslag met actiepunten + opvolgdatum van maken → beoordeel/pas aan → sla op bij de leerling.
 - **Oudergesprek opnemen** (`/leerlingen/[id]/opname`, ook bereikbaar vanuit het dashboard) — neem een gesprek op en bouw tegelijk een **live transcript** op. Na het stoppen corrigeer je het transcript en maak je er een verslag van. Zie *Spraakfunctionaliteit* hieronder.
 
 ## Spraakfunctionaliteit (browser-native, gratis)
@@ -62,20 +62,31 @@ externe API of key nodig. Werkt in **Chrome/Edge**; niet in Safari/Firefox
    `Verslag.brontekst`, met leerling + datum). Het **audiofragment gaat nooit
    naar de server/database** — je kan het wél zelf lokaal downloaden (`.webm`).
 
-## Claude API key invullen (verslag-generatie)
+## Claude API (AI-functies)
 
-De verslag-module werkt **zonder key** dankzij een lokale **mock-generator** — zo kun je alles testen.
-Wil je de echte AI-generatie via Claude? Vul dan je key in `.env` in:
+Er zijn twee AI-functies, beide server-side (de API key komt **nooit** bij de client):
+
+1. **Verslag genereren** (`src/lib/claude.ts`, functie `genereerVerslag`) — zet losse
+   notities om in een verslag met actiepunten + opvolgdatum. Werkt **zonder key** dankzij
+   een lokale **mock-generator**; met een key gebruikt ze de echte Claude API.
+2. **"Laat AI uitwerken"** — knop naast de dicteerknop (in de verslag-editor én het
+   oudergesprek-scherm) die de ruwe tekst (dictaat/transcript) via de **officiële
+   `@anthropic-ai/sdk`** herschrijft tot een net, gestructureerd verslag. Dit loopt via de
+   server-route **`POST /api/ai/verslag`** (`src/lib/aiVerslag.ts`), met een systeemprompt
+   voor een leerlingbegeleider in het Vlaamse onderwijs (behoudt alle feiten, verzint niets,
+   structureert met duidelijke alinea's). Bij succes vervangt het resultaat de tekst in het
+   veld, met **"Ongedaan maken"** om de originele tekst terug te zetten; bij een fout (geen
+   key, rate limit, netwerk) blijft de originele tekst behouden en verschijnt een nette melding.
+
+Vul je key in via de environment variables:
 
 ```env
 ANTHROPIC_API_KEY="sk-ant-..."
-ANTHROPIC_MODEL="claude-sonnet-5"   # optioneel
+ANTHROPIC_MODEL="claude-sonnet-5"   # optioneel; standaard de nieuwste Sonnet
 ```
 
-De integratie zit volledig in **`src/lib/claude.ts`** (functie `genereerVerslag`). Zolang de key
-leeg is, gebruikt de app automatisch de mock; van zodra er een geldige key staat, roept ze de
-echte Claude Messages API aan. Faalt de API-oproep (bv. verkeerde key), dan valt de app netjes
-terug op de mock met een duidelijke melding.
+Zonder `ANTHROPIC_API_KEY` valt functie 1 terug op de mock; functie 2 toont dan de melding
+dat er geen key is ingesteld (er wordt niets naar Claude gestuurd).
 
 ## Wachtwoordbeveiliging (poortje)
 
