@@ -10,7 +10,7 @@ testdata** (geen echte leerlingen).
 ## Snel starten (lokaal)
 
 Je hebt een lokale **PostgreSQL** nodig. Zet in `.env` de `DATABASE_URL` en
-`DIRECT_URL` (zie `.env` voor een voorbeeld), en dan:
+`DATABASE_URL_UNPOOLED` (zie `.env` voor een voorbeeld), en dan:
 
 ```bash
 npm install          # dependencies + genereert Prisma client
@@ -77,24 +77,32 @@ bereikbaar. Zie het deployment-hoofdstuk voor het instellen op Vercel.
 
 De app draait op Vercel (serverless). Omdat het serverless filesystem
 read-only is, gebruikt de app **PostgreSQL** (niet langer een lokaal
-SQLite-bestand). Gebruik een gehoste Postgres, bv. **Vercel Postgres**, **Neon**
-of **Supabase**.
+SQLite-bestand). Deze setup is afgestemd op de **Neon-Postgres-integratie** in
+Vercel.
 
 ### Environment variables (in Vercel → Project → Settings → Environment Variables)
 
-| Variabele            | Verplicht | Waarvoor                                                                 |
-| -------------------- | --------- | ------------------------------------------------------------------------ |
-| `DATABASE_URL`       | ✅ ja     | Connectiestring voor de app. Gebruik de **pooled** connectie als je provider die geeft (bv. Neon/Supabase pgbouncer). |
-| `DIRECT_URL`         | ✅ ja     | **Directe** (niet-pooled) connectiestring, gebruikt door `prisma migrate deploy` tijdens de build. Heeft je provider maar één URL? Zet dan dezelfde waarde als `DATABASE_URL`. |
-| `APP_PASSWORD`       | ✅ ja*    | Het gedeelde wachtwoord voor het inlog-poortje. *Technisch optioneel — laat je het leeg, dan is de site publiek toegankelijk.* Zet het dus zeker bij een live-deploy. |
-| `ANTHROPIC_API_KEY`  | ⬜ optioneel | Claude API key voor de verslag-generatie. Leeg = lokale mock-generator. |
-| `ANTHROPIC_MODEL`    | ⬜ optioneel | Welk Claude-model gebruikt wordt (default `claude-sonnet-5`).           |
+De Neon-integratie maakt `DATABASE_URL` en `DATABASE_URL_UNPOOLED` **automatisch**
+aan — die hoef je niet zelf over te typen. Je voegt enkel `APP_PASSWORD` (en
+optioneel de Claude-variabelen) toe.
+
+| Variabele               | Verplicht | Waarvoor                                                                 |
+| ----------------------- | --------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL`          | ✅ (auto) | Pooled connectiestring voor de app. **Automatisch gezet door de Neon-integratie.** |
+| `DATABASE_URL_UNPOOLED` | ✅ (auto) | Directe (niet-pooled) connectiestring, gebruikt door `prisma migrate deploy` tijdens de build. **Automatisch gezet door de Neon-integratie.** |
+| `APP_PASSWORD`          | ✅ ja*    | Het gedeelde wachtwoord voor het inlog-poortje. *Technisch optioneel — laat je het leeg, dan is de site publiek toegankelijk.* Zet het dus zeker bij een live-deploy. |
+| `ANTHROPIC_API_KEY`     | ⬜ optioneel | Claude API key voor de verslag-generatie. Leeg = lokale mock-generator. |
+| `ANTHROPIC_MODEL`       | ⬜ optioneel | Welk Claude-model gebruikt wordt (default `claude-sonnet-5`).           |
+
+Gebruik je een andere provider dan Neon, zorg dan zelf dat `DATABASE_URL`
+(pooled) en `DATABASE_URL_UNPOOLED` (direct) gezet zijn; heb je maar één URL,
+zet dan dezelfde waarde in beide.
 
 ### Migraties
 
 Het build-commando is `prisma generate && prisma migrate deploy && next build`,
 dus **bij elke deploy worden de migraties automatisch uitgevoerd** tegen de
-database uit `DIRECT_URL`. Er is geen extra stap nodig.
+database uit `DATABASE_URL_UNPOOLED`. Er is geen extra stap nodig.
 
 ### Database eenmalig vullen met testdata (seed)
 
@@ -102,8 +110,8 @@ De seed draai je één keer handmatig tegen de productiedatabase (hij maakt eers
 schoon en zet er dan de fictieve testdata in):
 
 ```bash
-# lokaal, met DATABASE_URL/DIRECT_URL wijzend naar de Vercel-database:
-DATABASE_URL="<prod-url>" DIRECT_URL="<prod-direct-url>" npm run db:seed
+# lokaal, met de Neon-URL's uit je Vercel-project:
+DATABASE_URL="<neon-pooled-url>" DATABASE_URL_UNPOOLED="<neon-direct-url>" npm run db:seed
 ```
 
 > ⚠️ De seed verwijdert eerst alle bestaande data. Draai hem enkel voor de
