@@ -33,8 +33,8 @@ export default async function LeerlingenPage({ searchParams }: Props) {
   if (sp.status) where.status = sp.status;
   if (sp.q) {
     where.OR = [
-      { voornaam: { contains: sp.q } },
-      { achternaam: { contains: sp.q } },
+      { voornaam: { contains: sp.q, mode: "insensitive" } },
+      { achternaam: { contains: sp.q, mode: "insensitive" } },
     ];
   }
 

@@ -6,8 +6,12 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Verbinding voor de app (op Vercel: de "pooled" connectiestring).
+  url       = env("DATABASE_URL")
+  // Directe verbinding voor migraties (prisma migrate). Mag gelijk zijn aan
+  // DATABASE_URL als je provider geen aparte pooled/direct URL geeft.
+  directUrl = env("DIRECT_URL")
 }
 
 /// Een klas binnen de school (bv. "3A").

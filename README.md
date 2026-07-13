@@ -1,28 +1,37 @@
 # Zorgdossier Tool (MVP)
 
-Een lokale webapplicatie voor een **zorgcoördinator in het lager onderwijs**.
-Volledig lokaal draaiend: **Next.js + TypeScript + SQLite (via Prisma) + Tailwind CSS**.
-Geen externe backend, geen login. Werkt met **fictieve testdata** (geen echte leerlingen).
+Een webapplicatie voor een **zorgcoördinator in het lager onderwijs**.
+Stack: **Next.js + TypeScript + PostgreSQL (via Prisma) + Tailwind CSS**.
+Optioneel afschermbaar met één gedeeld wachtwoord. Werkt met **fictieve
+testdata** (geen echte leerlingen).
 
 > ⚠️ Dit is een MVP-prototype. Alle data is verzonnen.
 
-## Snel starten
+## Snel starten (lokaal)
+
+Je hebt een lokale **PostgreSQL** nodig. Zet in `.env` de `DATABASE_URL` en
+`DIRECT_URL` (zie `.env` voor een voorbeeld), en dan:
 
 ```bash
 npm install          # dependencies + genereert Prisma client
-npm run db:reset     # maakt de SQLite-db aan en vult ze met fictieve testdata
-npm run dev          # start op http://localhost:3000
+npm run db:migrate    # past de migraties toe op je database
+npm run db:seed       # vult de database met fictieve testdata
+npm run dev           # start op http://localhost:3000
 ```
+
+Of in één keer opnieuw opzetten: `npm run db:reset` (dropt, migreert én seedt).
 
 Handige scripts:
 
-| Script              | Wat het doet                                         |
-| ------------------- | ---------------------------------------------------- |
-| `npm run dev`       | Start de dev-server (http://localhost:3000)          |
-| `npm run db:reset`  | Wist en herbouwt de database + seed-data             |
-| `npm run db:seed`   | Enkel (opnieuw) seeden                               |
-| `npm run db:studio` | Opent Prisma Studio om de database te bekijken       |
-| `npm run build`     | Productie-build (tevens volledige type-check)        |
+| Script               | Wat het doet                                          |
+| -------------------- | ----------------------------------------------------- |
+| `npm run dev`        | Start de dev-server (http://localhost:3000)           |
+| `npm run db:migrate` | Maakt/past migraties toe (`prisma migrate dev`)       |
+| `npm run db:deploy`  | Past bestaande migraties toe (`prisma migrate deploy`)|
+| `npm run db:reset`   | Dropt de db, herbouwt via migraties + seed            |
+| `npm run db:seed`    | Enkel (opnieuw) seeden                                |
+| `npm run db:studio`  | Opent Prisma Studio om de database te bekijken        |
+| `npm run build`      | `prisma generate` + `prisma migrate deploy` + build   |
 
 ## Functionaliteiten
 
@@ -64,6 +73,42 @@ De afscherming gebeurt in `src/middleware.ts` (Edge middleware — werkt ook in
 Vercels serverless omgeving). Statische bestanden en de inlogpagina blijven
 bereikbaar. Zie het deployment-hoofdstuk voor het instellen op Vercel.
 
+## Deployment op Vercel
+
+De app draait op Vercel (serverless). Omdat het serverless filesystem
+read-only is, gebruikt de app **PostgreSQL** (niet langer een lokaal
+SQLite-bestand). Gebruik een gehoste Postgres, bv. **Vercel Postgres**, **Neon**
+of **Supabase**.
+
+### Environment variables (in Vercel → Project → Settings → Environment Variables)
+
+| Variabele            | Verplicht | Waarvoor                                                                 |
+| -------------------- | --------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL`       | ✅ ja     | Connectiestring voor de app. Gebruik de **pooled** connectie als je provider die geeft (bv. Neon/Supabase pgbouncer). |
+| `DIRECT_URL`         | ✅ ja     | **Directe** (niet-pooled) connectiestring, gebruikt door `prisma migrate deploy` tijdens de build. Heeft je provider maar één URL? Zet dan dezelfde waarde als `DATABASE_URL`. |
+| `APP_PASSWORD`       | ✅ ja*    | Het gedeelde wachtwoord voor het inlog-poortje. *Technisch optioneel — laat je het leeg, dan is de site publiek toegankelijk.* Zet het dus zeker bij een live-deploy. |
+| `ANTHROPIC_API_KEY`  | ⬜ optioneel | Claude API key voor de verslag-generatie. Leeg = lokale mock-generator. |
+| `ANTHROPIC_MODEL`    | ⬜ optioneel | Welk Claude-model gebruikt wordt (default `claude-sonnet-5`).           |
+
+### Migraties
+
+Het build-commando is `prisma generate && prisma migrate deploy && next build`,
+dus **bij elke deploy worden de migraties automatisch uitgevoerd** tegen de
+database uit `DIRECT_URL`. Er is geen extra stap nodig.
+
+### Database eenmalig vullen met testdata (seed)
+
+De seed draai je één keer handmatig tegen de productiedatabase (hij maakt eerst
+schoon en zet er dan de fictieve testdata in):
+
+```bash
+# lokaal, met DATABASE_URL/DIRECT_URL wijzend naar de Vercel-database:
+DATABASE_URL="<prod-url>" DIRECT_URL="<prod-direct-url>" npm run db:seed
+```
+
+> ⚠️ De seed verwijdert eerst alle bestaande data. Draai hem enkel voor de
+> initiële vulling, niet op een database met echte gegevens.
+
 ## Datamodel
 
 Zie [`prisma/schema.prisma`](prisma/schema.prisma): `Klas`, `Leerling`, `Zorgprofiel` (1-op-1),
@@ -73,17 +118,24 @@ Zie [`prisma/schema.prisma`](prisma/schema.prisma): `Klas`, `Leerling`, `Zorgpro
 
 ```
 prisma/
-  schema.prisma      # datamodel
+  schema.prisma      # datamodel (PostgreSQL)
+  migrations/        # Prisma-migraties (uitgevoerd bij de build)
   seed.ts            # 12 fictieve leerlingen, 2 klassen, AVI-resultaten, normtabel
 src/
+  middleware.ts      # wachtwoord-poortje (Edge middleware)
   lib/
     prisma.ts        # Prisma client
-    avi.ts           # AVI-berekening (niveau + status)
+    auth.ts          # wachtwoordbeveiliging (Web Crypto)
+    avi.ts           # AVI-berekening (niveau + status) + grafiekschaal
+    opvolging.ts     # urgentie-classificatie van opvolgacties
     claude.ts        # 👈 Claude API-integratie + mock (hier je key)
     format.ts        # weergave-helpers
-  components/        # NavBar, Badge
+  components/        # NavBar, Badge, PrintButton, AfgerondToggle
   app/
-    leerlingen/      # lijst, dossier, acties, verslag-module
+    login/           # inlogpagina + login/logout-actions
+    dashboard/       # dashboard met filters
+    leerlingen/      # lijst, CRUD, dossier, acties, verslag- en print-weergave
+    opvolging/       # opvolgacties-overzicht
     avi/             # AVI-invoer + klasoverzicht
     normtabel/       # normtabel-configuratie
 ```
